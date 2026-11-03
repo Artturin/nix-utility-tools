@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ESC=$'\033'
+GREY="${ESC}[38;5;245m"
+GREEN="${ESC}[0;32m"
+RED="${ESC}[0;31m"
+NC="${ESC}[0m"
+
 usage() {
     cat >&2 <<'EOF'
 usage: ./difflog [--no-follow] [--keep-jobs] [--keep-progress]
@@ -208,7 +214,7 @@ resolve() {
     local r
     if (( follow )) && [[ -L $1 ]]; then
         r=$(readlink -f -- "$1") || { echo "difflog: cannot resolve symlink: $1" >&2; exit 2; }
-        echo "difflog: $1 -> $r" >&2
+        echo -e "${GREY}difflog: $1 -> $r${NC}" >&2
         printf '%s\n' "$r"
     else
         printf '%s\n' "$1"
@@ -290,7 +296,7 @@ writelog() {
 }
 
 if (( sort_lines )); then
-    echo "difflog: lines are SORTED before diffing (--sort-lines); ordering differences are hidden" >&2
+    echo -e "${GREY}difflog: lines are SORTED before diffing (--sort-lines); ordering differences are hidden${NC}" >&2
 fi
 
 writelog "$a" "$d"/a/"$name_a"
@@ -299,9 +305,9 @@ writelog "$b" "$d"/b/"$name_b"
 cd "$d"
 # when git diff opens less, pressing q will exit with 1 which may interfere with scripts that use difflog
 if git diff --no-index --no-prefix "$@" a/"$name_a" b/"$name_b"; then
-    echo "difflog: No changes detected (Exit 0)"
+    echo -e "${GREEN}difflog: No changes detected (Exit 0)${NC}"
     exit 0
 else
-    echo "difflog: Changes detected! (Exit 1)"
+    echo -e "${RED}difflog: Changes detected! (Exit 1)${NC}"
     exit 1
 fi
