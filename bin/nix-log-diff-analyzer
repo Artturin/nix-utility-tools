@@ -103,6 +103,7 @@ IMPORTANT CONTEXT: The original build logs were pre-sorted using the \`sort\` co
 - Differences in test suite passes/failures, skipped tests, or functional outputs.
 - NEW OR REMOVED TARGETS/ARTIFACTS: The addition or complete removal of build targets, object files (.o, .cpp.o), shared/static libraries (.so, .a), or executables (e.g., missing "Building CXX object", "Linking CXX shared library", or "Automatic MOC for target" lines).
 - NEW FIXUP PATHS: Entirely new paths (not just temp path shifts) appearing in fixup phases (e.g., a completely new dependency or output path appearing under "shrinking RPATHs" or "patching script interpreter paths").
+- THE FALLBACK RULE (UNMATCHED LINES): Because these logs were pre-sorted, if a line is completely added or completely removed from the build steps and does NOT explicitly match one of the INCONSEQUENTIAL noise categories above, you MUST default to flagging it as CONSEQUENTIAL.
 
 # DIFF TO ANALYZE:
 <diff_content>
