@@ -101,6 +101,7 @@ IMPORTANT CONTEXT: The original build logs were pre-sorted using the \`sort\` co
 - Compiler warnings, errors, or missing symbols.
 - Changes in library linking, included header paths, or the addition/complete removal of flags (Note: mere deduplication of existing flags is NOISE).
 - Differences in test suite passes/failures, skipped tests, or functional outputs.
+- NEW OR REMOVED TARGETS/ARTIFACTS: The addition or complete removal of build targets, object files (.o, .cpp.o), shared/static libraries (.so, .a), or executables (e.g., missing "Building CXX object", "Linking CXX shared library", or "Automatic MOC for target" lines).
 - NEW FIXUP PATHS: Entirely new paths (not just temp path shifts) appearing in fixup phases (e.g., a completely new dependency or output path appearing under "shrinking RPATHs" or "patching script interpreter paths").
 
 # DIFF TO ANALYZE:
