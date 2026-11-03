@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ANALYZER_MODEL=${NIX_LOG_DIFF_ANALYZER_MODEL:?set NIX_LOG_DIFF_ANALYZER_MODEL to an Ollama model name}
+
+# Color definitions using raw escape bytes (ANSI-C quoting)
+ESC=$'\033'
+RED="${ESC}[0;31m"
+GREEN="${ESC}[0;32m"
+YELLOW="${ESC}[0;33m"
+CYAN="${ESC}[0;36m"
+GREY="${ESC}[38;5;245m" # Reliable 256-color mid-grey
+NC="${ESC}[0m"
+
+log_info() {
+    echo -e "${CYAN}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[INCONSEQUENTIAL]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Variable to store the diff
+DIFF_CONTENT=""
+
+# 1. Check if data is being piped in via stdin
+if [ ! -t 0 ]; then
+    DIFF_CONTENT=$(cat)
+fi
+
+# 2. Argument parsing
+DRY_RUN=0
+QUIET=0
+DIFF_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        -q|--quiet)
+            QUIET=1
+            shift
+            ;;
+        *)
+            if [[ -n "$DIFF_FILE" ]]; then
+                log_error "Multiple files provided."
+                exit 1
+            fi
+            DIFF_FILE="$1"
+            shift
+            ;;
+    esac
+done
+
+# 3. If no piped data, we need a valid file argument
+if [[ -z "$DIFF_CONTENT" ]]; then
+    if [[ -z "$DIFF_FILE" ]]; then
+        log_error "Missing diff input."
+        echo -e "Usage: ./nix-diff-analyzer [-q|--quiet] [--dry-run] <path-to-diff-file>"
+        echo -e "   or: command | ./nix-diff-analyzer [-q|--quiet] [--dry-run]"
+        exit 1
+    fi
+
+    if [[ ! -f "$DIFF_FILE" ]]; then
+        log_error "File input does not exist: $DIFF_FILE"
+        exit 1
+    fi
+
+    DIFF_CONTENT=$(cat "$DIFF_FILE")
+fi
+
+# Build the prompt payload
+PROMPT=$(cat <<EOF
+Analyze this diff between two Nix build logs. Determine if the differences are consequential to the final build output, or if they are just inconsequential environmental noise.
+
+Nix builds are sandboxed, so specific types of harmless variations are expected between identical builds.
+IMPORTANT CONTEXT: The original build logs were pre-sorted using the \`sort\` command before this diff was generated. This means log interleaving issues are mostly mitigated, but lines may still shift if paths or hashes change.
+
+# INCONSEQUENTIAL (Noise) - Ignore these entirely:
+- Temporary file paths and randomized directory names (e.g., /tmp/..., /build/tmp...).
+- Randomized runtime identifiers (e.g., DBus daemon paths, GUIDs, UUIDs, memory addresses).
+- Hardware-dependent metrics (e.g., thread counts, parallel jobs, batch sizes).
+- Timestamps, elapsed time, build speeds, and performance logs.
+- PIDs (Process IDs) or port numbers.
+- Nix framework informational messages (e.g., "structuredAttrs is enabled").
+- Deduplicated build flags (e.g., multiple identical compiler or CMake arguments like "-DQT_OPTIONAL_TOOLS_PATH=..." being reduced to a single instance, provided the flag is still present at least once).
+- KNOWN NIX BUG: The specific absence/removal of fixupPhase logs (like "checking for references to /build/", "patching script interpreter paths", "shrinking RPATHs", or "stripping") ONLY when applied to "-debug" outputs. (This is a known bug when structuredAttrs is enabled and is inconsequential).
+
+# CONSEQUENTIAL - Flag these:
+- Build system feature checks (e.g., CMake/configure detecting or failing to detect a dependency, header, or capability).
+- Compiler warnings, errors, or missing symbols.
+- Changes in library linking, included header paths, or the addition/complete removal of flags (Note: mere deduplication of existing flags is NOISE).
+- Differences in test suite passes/failures, skipped tests, or functional outputs.
+- NEW FIXUP PATHS: Entirely new paths (not just temp path shifts) appearing in fixup phases (e.g., a completely new dependency or output path appearing under "shrinking RPATHs" or "patching script interpreter paths").
+
+# DIFF TO ANALYZE:
+<diff_content>
+${DIFF_CONTENT}
+</diff_content>
+
+# OUTPUT FORMAT
+If ALL changes in the diff are inconsequential noise, output exactly:
+False
+
+If there is ANY consequential change, output:
+True
+[Verbose explanation of exactly what changed and why it functionally impacts the build result]
+EOF
+)
+
+# Handle Dry Run
+if [[ $DRY_RUN -eq 1 ]]; then
+    log_info "DRY RUN: Would execute ollama with model '$ANALYZER_MODEL'."
+    head -n 27 <<< "$PROMPT"
+    exit 0
+fi
+
+# Execute Ollama Inference
+if [[ $QUIET -eq 1 ]]; then
+    log_info "Analyzing diff via Ollama (silently in background)..."
+    LLM_OUTPUT=$(ollama run "$ANALYZER_MODEL" 2>/dev/null <<< "$PROMPT")
+else
+    log_info "Analyzing diff via Ollama (streaming live)..."
+
+    # tee >(...) forks the stream:
+    # Fork 1 (stdout) goes purely into LLM_OUTPUT variable.
+    # Fork 2 (stderr) is filtered by sed: applies grey, resets at </think>, and deletes (!d) all remaining lines so they don't print to screen.
+    LLM_OUTPUT=$(ollama run "$ANALYZER_MODEL" 2>/dev/null <<< "$PROMPT" \
+        | tee >(sed --unbuffered -n -e '1,/<\/think>/!d' -e "1s/^/${GREY}/" -e "s/<\/think>/<\/think>${NC}/" -e 'p' >&2))
+
+    # Failsafe color reset in case the model stops abruptly before </think>
+    echo -e "${NC}" >&2
+fi
+
+# --- Extract Thinking vs. Final Answer using </think> as the delimiter ---
+if grep -q "</think>" <<< "$LLM_OUTPUT"; then
+    FINAL_ANSWER_RAW=$(awk '/<\/think>/{flag=1; next} flag' <<< "$LLM_OUTPUT")
+else
+    FINAL_ANSWER_RAW="$LLM_OUTPUT"
+fi
+
+# Strip markdown code blocks, backticks, and empty lines
+CLEAN_OUTPUT=$(sed 's/^```.*//g' <<< "$FINAL_ANSWER_RAW" | awk 'NF {$1=$1; print}')
+
+# Parse results
+if [[ "$CLEAN_OUTPUT" == "False"* ]]; then
+    log_success "Result: Inconsequential changes only (Noise)."
+    exit 0
+elif [[ "$CLEAN_OUTPUT" == "True"* ]]; then
+    log_warning "Result: Consequential differences found!"
+    DETAILS=$(tail -n +2 <<< "$CLEAN_OUTPUT")
+    echo -e "\n${YELLOW}Explanation:${NC}\n$DETAILS"
+    exit 1
+else
+    log_error "Unrecognized LLM output format. Raw output dumped below:"
+    echo "$LLM_OUTPUT"
+    exit 2
+fi

@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-usage: ./difflog $out1 $out2
+usage: ./difflog [--no-follow] [--keep-jobs] [--keep-progress]
+                 [--keep-phase-times] [--keep-pids] [--keep-glib-times]
+                 [--keep-test-times] [--keep-dbus] [--keep-cmake-times]
+                 [--keep-build-ids] [--keep-ctest-times] [--keep-tmpdirs]
+                 [--sort-lines]
+                 $out1 $out2 [git diff options...]
 
 Compare two Nix build logs, normalizing out boring differences.
 
@@ -14,15 +19,62 @@ Each argument can be either:
  * the store path of a build output, or
  * the store path of a derivation for the build.
 
-Each argument will be passed to `nix log` to get the log,
-and also used to find the output hash to normalize out.
+Each argument will be passed to `nix log` to get the log.
+
+An argument that is a symlink (./result, /run/current-system, a chain of
+links, ...) is followed to its final target first, and the target is what
+is passed to `nix log`; a note about this goes to stderr. Use --no-follow
+to pass arguments to `nix log` exactly as given. Arguments that are not
+symlinks (store paths, installables like nixpkgs#hello) are never altered.
 
 Normalization includes:
- * replacing the output hash with zeroes
+ * replacing all store path hashes with a constant
  * stripping ECMA-48(-style) terminal controls, like colors
  * replacing dates, timestamps, and timings with constants
+ * removing stdenv phase footers ("buildPhase completed in 1 minutes
+   5 seconds"); they are only printed for phases of 30s or more, so
+   the whole line is dropped, not just the duration
+   (disable with --keep-phase-times)
+ * replacing process ids ("(process:842):", "Started with PID: 1766")
+   with N (disable with --keep-pids)
+ * replacing random temp dir names ("/build/qsb-RoAGjy/...": six random
+   letters after "NAME-" directly under /build or /tmp) with XXXXXX
+   (disable with --keep-tmpdirs)
+ * replacing GLib log timestamps "**: 07:21:29.789:" with a constant
+   (disable with --keep-glib-times)
+ * replacing the Qt Test "Totals: ..., 4393ms" duration with Nms
+   (disable with --keep-test-times)
+ * replacing random D-Bus session address parts
+   ("/tmp/dbus-ggOBj2AOpQ,guid=12ad...") with constants
+   (disable with --keep-dbus)
+ * replacing CMake step timings ("-- Configuring done (14.6s)") with
+   "(Ns)" (disable with --keep-cmake-times)
+ * replacing build IDs, both "build id 36ad3d..." / "(build ID 36ad3d...)"
+   in the fixup phase output and in ".build-id/36/ad3d...." file names,
+   with constants
+   (disable with --keep-build-ids)
+ * replacing job and thread counts (-j2, -j23, --jobs=4, "using 97
+   parallel threads") with N
+   (disable with --keep-jobs)
+ * replacing progress counters ("[13/17]" -> "[N/N]", "[ 45%]" ->
+   "[N%]", and CTest's " 9/86 Test  #7:" -> "N/N Test  #7:") at the
+   start of lines; both the counter and the total are replaced
+   (disable with --keep-progress)
+ * replacing CTest durations ("Passed    0.02 sec", "Total Test time
+   (real) =   3.39 sec") with "N sec" (disable with --keep-ctest-times)
  * sorting runs of certain common messages, to reduce
    nondeterminism from concurrency
+
+Off by default:
+  --sort-lines  Sort the lines of each normalized log (byte order, keeping
+                duplicates) before diffing. Useful when a parallel build
+                interleaves its output differently from run to run, at the
+                cost of losing all information about ordering; a note is
+                printed to stderr when it is on.
+
+Any further arguments are passed to `git diff --no-index`, e.g.
+`--word-diff` or `-U20`. It runs inside the temp dir holding the
+normalized logs, so relative paths in those options refer to that dir.
 
 original program by gnprice https://gist.github.com/gnprice/1864b871656773f78f419201e8b5cda3
 EOF
@@ -59,6 +111,75 @@ striplog() {
           s<\b(time: |elapsed: |in )\K\d+(\.\d+)?s>
            <0.00s>ig;
 
+          # CTest durations: "Total Test time (real) =   3.39 sec" and
+          # " 1/86 Test  #1: embed-png-g1 ........   Passed    0.02 sec".
+          # The padding before the number varies with its width, so it is
+          # swallowed too.  Must run before the "N/N" counter rule below.
+          s{(Total Test time \(\w+\) =)[ ]+\d+(?:\.\d+)?[ ]+sec}{$1 N sec}g
+              if $ENV{DIFFLOG_STRIP_CTEST_TIMES};
+          s{^((?:[\w-]+: )?[ ]*\d+/\d+ Test[ ]+\#\d+: [^\n]*?)[ ]+\d+(?:\.\d+)?[ ]+sec$}{$1 N sec}gm
+              if $ENV{DIFFLOG_STRIP_CTEST_TIMES};
+
+          # stdenv phase footers: "buildPhase completed in 1 minutes 5 seconds".
+          # stdenv only prints these for phases that took 30s or more, so the
+          # line itself can be present in one log and absent in the other;
+          # drop the whole line rather than just normalizing the duration.
+          s{^\S+ completed in (?:\d+ (?:hours|minutes|seconds)[ ]?)+\n}{}gm
+              if $ENV{DIFFLOG_STRIP_PHASE_TIMES};
+
+          # Random D-Bus session addresses:
+          # "/tmp/dbus-ggOBj2AOpQ,guid=12ad2f3756dd6a0ce19958386ae8a070"
+          s{/tmp/dbus-\K[A-Za-z0-9]+}{RANDOM}g if $ENV{DIFFLOG_STRIP_DBUS};
+          s{,guid=\K[0-9a-f]{32}\b}{GUID}g if $ENV{DIFFLOG_STRIP_DBUS};
+
+          # CMake step timings: "-- Configuring done (14.6s)"
+          s{\bdone \(\K\d+(?:\.\d+)?(?=s\))}{N}g if $ENV{DIFFLOG_STRIP_CMAKE_TIMES};
+
+          # Build IDs as printed by the fixup phase:
+          # "separating debug info from /nix/store/...-foo/bin/x (build ID 36ad3d2c...)"
+          # and the file names derived from them:
+          # ".../lib/debug/.build-id/36/ad3d2c92b6e4....sourceoverlay"
+          # and "separate-debug-info: warning: multiple files with build id 1238... found"
+          s{\bbuild id \K[0-9a-f]{16,}\b}{BUILD_ID}gi if $ENV{DIFFLOG_STRIP_BUILD_IDS};
+          s{/\.build-id/\K[0-9a-f]{2}/[0-9a-f]{14,}}{XX/BUILD_ID}g if $ENV{DIFFLOG_STRIP_BUILD_IDS};
+
+          # GLib log lines: "(process:842): Domain-CRITICAL **: 07:21:29.789: msg"
+          s{\(process:\K\d+(?=\):)}{N}g if $ENV{DIFFLOG_STRIP_PIDS};
+          # and "Started with PID: 1766"
+          s{\bPID: \K\d+\b}{N}g if $ENV{DIFFLOG_STRIP_PIDS};
+
+          # Random temp dirs from QTemporaryDir and the like: "NAME-XXXXXX",
+          # six random letters, directly under /build or /tmp, e.g.
+          # "/build/qsb-RoAGjy/qsb_spv_temp".
+          s{(?:/build|/tmp)/[A-Za-z][\w]*-\K[A-Za-z]{6}(?=/)}{XXXXXX}g
+              if $ENV{DIFFLOG_STRIP_TMPDIRS};
+          s{\*\*: \K\d\d:\d\d:\d\d\.\d+(?=:)}{HH:MM:SS.mmm}g
+              if $ENV{DIFFLOG_STRIP_GLIB_TIMES};
+
+          # Qt Test totals: "Totals: 35 passed, 0 failed, 0 skipped, 0 blacklisted, 4393ms"
+          s{\bTotals: [^\n]*?, \K\d+(?:\.\d+)?ms\b}{Nms}g
+              if $ENV{DIFFLOG_STRIP_TEST_TIMES};
+
+          # Job counts depend on the build machine: -j2 vs -j23.
+          s{(?<![\w-])-j[ ]?\K\d+\b}{N}g if $ENV{DIFFLOG_STRIP_JOBS};
+          s{--jobs[= ]\K\d+\b}{N}g if $ENV{DIFFLOG_STRIP_JOBS};
+          # ...and so do thread/worker counts: "using 97 parallel threads".
+          s{\b\d+(?= parallel (?:threads|jobs|workers|processes)\b)}{N}g
+              if $ENV{DIFFLOG_STRIP_JOBS};
+          # Thread counts, e.g. doxygen "Generating 14 dot graphs using 25
+          # parallel threads with batch size 50..."
+          s{\b\d+(?= parallel threads?\b)}{N}g if $ENV{DIFFLOG_STRIP_JOBS};
+
+          # Progress counters at the start of a line (or after a \r):
+          # ninja "[13/17] ", and cmake/make "[ 45%] ".  Both the counter
+          # and the total are replaced.
+          s{(^|\r)\[[ ]*\d+/\d+\]}{$1\[N/N\]}gm if $ENV{DIFFLOG_STRIP_PROGRESS};
+          s{(^|\r)\[[ ]*\d+(?=%\])}{$1\[N}gm if $ENV{DIFFLOG_STRIP_PROGRESS};
+
+          # CTest counter: " 9/86 Test  #7: ..." -> "N/N Test  #7: ..."
+          # (also with a "task-0: " style prefix in front)
+          s{^(?:[\w-]+: )?\K[ ]*\d+/\d+(?= Test[ ]+\#\d+: )}{N/N}gm if $ENV{DIFFLOG_STRIP_PROGRESS};
+
           # Sort runs of adjacent lines of each of these types.
           s<(^(libtool: compile: |/nix/store/\S+/bin/bash \S+/libtool ).*\n)+>
            < join("", sort(split /^/, $&)) >egm;
@@ -73,14 +194,114 @@ striplog() {
         '
 }
 
-d=$(mktemp -d)
+# A readable file name for the diff header: the resolved store path
+# without its hash, made safe for use as a file name.
+label() {
+    basename -- "$(readlink -f -- "$1")" \
+      | sed -E 's/^[0-9a-df-np-sv-z]{32}-//' \
+      | tr -c 'A-Za-z0-9._+\n-' '_'
+}
 
-if ! (( $# == 2 )); then
+# If $1 is a symlink, print its final target; otherwise print $1 unchanged.
+# Notes on stderr, so stdout carries only the result.
+resolve() {
+    local r
+    if (( follow )) && [[ -L $1 ]]; then
+        r=$(readlink -f -- "$1") || { echo "difflog: cannot resolve symlink: $1" >&2; exit 2; }
+        echo "difflog: $1 -> $r" >&2
+        printf '%s\n' "$r"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+follow=1
+strip_jobs=1
+strip_progress=1
+strip_phase_times=1
+strip_pids=1
+strip_glib_times=1
+strip_test_times=1
+strip_dbus=1
+strip_cmake_times=1
+strip_build_ids=1
+strip_ctest_times=1
+strip_tmpdirs=1
+sort_lines=0
+while (( $# )); do
+    case $1 in
+        -h|--help) usage; exit 0 ;;
+        --no-follow) follow=0; shift ;;
+        --keep-jobs) strip_jobs=0; shift ;;
+        --keep-progress) strip_progress=0; shift ;;
+        --keep-phase-times) strip_phase_times=0; shift ;;
+        --keep-pids) strip_pids=0; shift ;;
+        --keep-glib-times) strip_glib_times=0; shift ;;
+        --keep-test-times) strip_test_times=0; shift ;;
+        --keep-dbus) strip_dbus=0; shift ;;
+        --keep-cmake-times) strip_cmake_times=0; shift ;;
+        --keep-build-ids) strip_build_ids=0; shift ;;
+        --keep-ctest-times) strip_ctest_times=0; shift ;;
+        --keep-tmpdirs) strip_tmpdirs=0; shift ;;
+        --sort-lines) sort_lines=1; shift ;;
+        --) shift; break ;;
+        -*) echo "difflog: unknown option: $1 (put git diff options after the two paths)" >&2
+            usage; exit 2 ;;
+        *) break ;;
+    esac
+done
+
+if (( $# < 2 )); then
     usage
     exit 2
 fi
+a=$(resolve "$1")
+b=$(resolve "$2")
+shift 2
 
-striplog "$1" >"$d"/a.log
-striplog "$2" >"$d"/b.log
+# Read by the perl filter in striplog; empty string = off.
+if (( strip_jobs )); then export DIFFLOG_STRIP_JOBS=1; else unset DIFFLOG_STRIP_JOBS; fi
+if (( strip_progress )); then export DIFFLOG_STRIP_PROGRESS=1; else unset DIFFLOG_STRIP_PROGRESS; fi
+if (( strip_phase_times )); then export DIFFLOG_STRIP_PHASE_TIMES=1; else unset DIFFLOG_STRIP_PHASE_TIMES; fi
+if (( strip_pids )); then export DIFFLOG_STRIP_PIDS=1; else unset DIFFLOG_STRIP_PIDS; fi
+if (( strip_glib_times )); then export DIFFLOG_STRIP_GLIB_TIMES=1; else unset DIFFLOG_STRIP_GLIB_TIMES; fi
+if (( strip_test_times )); then export DIFFLOG_STRIP_TEST_TIMES=1; else unset DIFFLOG_STRIP_TEST_TIMES; fi
+if (( strip_dbus )); then export DIFFLOG_STRIP_DBUS=1; else unset DIFFLOG_STRIP_DBUS; fi
+if (( strip_cmake_times )); then export DIFFLOG_STRIP_CMAKE_TIMES=1; else unset DIFFLOG_STRIP_CMAKE_TIMES; fi
+if (( strip_build_ids )); then export DIFFLOG_STRIP_BUILD_IDS=1; else unset DIFFLOG_STRIP_BUILD_IDS; fi
+if (( strip_ctest_times )); then export DIFFLOG_STRIP_CTEST_TIMES=1; else unset DIFFLOG_STRIP_CTEST_TIMES; fi
+if (( strip_tmpdirs )); then export DIFFLOG_STRIP_TMPDIRS=1; else unset DIFFLOG_STRIP_TMPDIRS; fi
 
-git diff --no-index "$d"/{a,b}.log
+d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT
+
+mkdir "$d"/a "$d"/b
+name_a=$(label "$a").log
+name_b=$(label "$b").log
+
+# Normalize (and optionally sort) one log into a file.  With pipefail, a
+# failing `nix log` still aborts the script even when piped into sort.
+writelog() {
+    if (( sort_lines )); then
+        striplog "$1" | LC_ALL=C sort >"$2"
+    else
+        striplog "$1" >"$2"
+    fi
+}
+
+if (( sort_lines )); then
+    echo "difflog: lines are SORTED before diffing (--sort-lines); ordering differences are hidden" >&2
+fi
+
+writelog "$a" "$d"/a/"$name_a"
+writelog "$b" "$d"/b/"$name_b"
+
+cd "$d"
+# when git diff opens less, pressing q will exit with 1 which may interfere with scripts that use difflog
+if git diff --no-index --no-prefix "$@" a/"$name_a" b/"$name_b"; then
+    echo "difflog: No changes detected (Exit 0)"
+    exit 0
+else
+    echo "difflog: Changes detected! (Exit 1)"
+    exit 1
+fi
