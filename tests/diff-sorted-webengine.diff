@@ -1,0 +1,73 @@
+diff --git a/qtwebengine-6.140.0-rc.log b/qtwebengine-6.140.0-rc.log
+index ef1e35a..48aed47 100644
+--- a/qtwebengine-6.140.0-rc.log
++++ b/qtwebengine-6.140.0-rc.log
+@@ -3814,8 +3814,8 @@
+ -- Found Python3: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-python3-3.14.8-env/bin/python3.14 (found suitable version "3.14.8", minimum required is "3.8") found components: Interpreter
+ -- Found Threads: TRUE
+ -- Found WrapAtomic: TRUE
+--- GN Done. Made 26699 targets from 3668 files in 20890ms
+--- GN Done. Made 26800 targets from 3678 files in 20879ms
++-- GN Done. Made 26699 targets from 3668 files in 13059ms
++-- GN Done. Made 26800 targets from 3678 files in 15568ms
+ -- GN arg file:
+ -- GN args:
+@@ -53949,7 +53949,6 @@ WebEngine Repository Build Options:
+ [N/N] Automatic MOC for target WebEngineQuick
+ [N/N] Automatic MOC for target WebEngineQuickDelegatesQml
+ [N/N] Automatic MOC for target WebEngineWidgets
+-[N/N] Automatic MOC for target qtwebenginequickdelegatesplugin
+ [N/N] Automatic MOC for target qwebengine_convert_dict
+ [N/N] Automatic QML type registration for target PdfQuick
+ [N/N] Automatic QML type registration for target WebEngineQuick
+@@ -54066,26 +54065,12 @@ WebEngine Repository Build Options:
+ [N/N] Building CXX object src/webenginequick/CMakeFiles/WebEngineQuick.dir/webenginequick_qmltyperegistrations.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.qt/rcc/qrc_WebEngineQuickDelegatesQml_raw_qml_0.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.qt/rcc/qrc_qmake_QtWebEngine_ControlsDelegates.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_AlertDialog_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_AuthenticationDialog_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_AutofillPopup_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_ColorDialog_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_ConfirmDialog_qml.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_DirectoryPicker_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_FilePicker_qml.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_MenuItem_qml.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_MenuSeparator_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_Menu_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_PromptDialog_qml.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_ToolTip_qml.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_TouchHandle_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_TouchSelectionMenu_qml.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/.rcc/qmlcache/WebEngineQuickDelegatesQml_qmlcache_loader.cpp.o
+ [N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/WebEngineQuickDelegatesQml_autogen/mocs_compilation.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/WebEngineQuickDelegatesQml.dir/webenginequickdelegatesqml_qmltyperegistrations.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/qtwebenginequickdelegatesplugin.dir/.qt/rcc/qrc_qtwebenginequickdelegatesplugin.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/qtwebenginequickdelegatesplugin.dir/qtwebenginequickdelegatesplugin_QtWebEngine_ControlsDelegatesPlugin.cpp.o
+-[N/N] Building CXX object src/webenginequick/ui/CMakeFiles/qtwebenginequickdelegatesplugin.dir/qtwebenginequickdelegatesplugin_autogen/mocs_compilation.cpp.o
+ [N/N] Building CXX object src/webenginewidgets/CMakeFiles/WebEngineWidgets.dir/WebEngineWidgets_autogen/mocs_compilation.cpp.o
+ [N/N] Building CXX object src/webenginewidgets/CMakeFiles/WebEngineWidgets.dir/api/qwebenginenotificationpresenter.cpp.o
+ [N/N] Building CXX object src/webenginewidgets/CMakeFiles/WebEngineWidgets.dir/api/qwebengineview.cpp.o
+@@ -72977,7 +72962,6 @@ WebEngine Repository Build Options:
+ [N/N] Creating library symlink lib/libQt6PdfWidgets.so.6 lib/libQt6PdfWidgets.so
+ [N/N] Creating library symlink lib/libQt6WebEngineCore.so.6 lib/libQt6WebEngineCore.so
+ [N/N] Creating library symlink lib/libQt6WebEngineQuick.so.6 lib/libQt6WebEngineQuick.so
+-[N/N] Creating library symlink lib/libQt6WebEngineQuickDelegatesQml.so.6 lib/libQt6WebEngineQuickDelegatesQml.so
+ [N/N] Creating library symlink lib/libQt6WebEngineWidgets.so.6 lib/libQt6WebEngineWidgets.so
+ [N/N] Generating ../../../mkspecs/modules/qt_lib_webenginecore_private.pri
+ [N/N] Generating ../../mkspecs/modules/qt_lib_pdf_private.pri
+@@ -73073,7 +73057,6 @@ WebEngine Repository Build Options:
+ [N/N] Linking CXX shared library lib/libQt6PdfWidgets.so.6.140.0
+ [N/N] Linking CXX shared library lib/libQt6WebEngineCore.so.6.140.0
+ [N/N] Linking CXX shared library lib/libQt6WebEngineQuick.so.6.140.0
+-[N/N] Linking CXX shared library lib/libQt6WebEngineQuickDelegatesQml.so.6.140.0
+ [N/N] Linking CXX shared library lib/libQt6WebEngineWidgets.so.6.140.0
+ [N/N] Linking CXX shared module lib/qt-6/plugins/imageformats/libqpdf.so
+ [N/N] Linking CXX shared module lib/qt-6/qml/QtQuick/Pdf/libpdfquickplugin.so
+@@ -73117,7 +73100,6 @@ WebEngine Repository Build Options:
+ [N/N] Running rcc for resource qmake_QtQuick_Pdf
+ [N/N] Running rcc for resource qmake_QtWebEngine
+ [N/N] Running rcc for resource qmake_QtWebEngine_ControlsDelegates
+-[N/N] Running rcc for resource qtwebenginequickdelegatesplugin
+ [N/N] Running syncqt.cpp for module: QtPdf
+ [N/N] Running syncqt.cpp for module: QtPdfQuick
+ [N/N] Running syncqt.cpp for module: QtPdfWidgets

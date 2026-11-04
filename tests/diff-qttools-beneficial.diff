@@ -1,0 +1,104 @@
+diff --git a/qttools-6.12.0.log b/qttools-6.12.0.log
+index b544611..7b3042b 100644
+--- a/qttools-6.12.0.log
++++ b/qttools-6.12.0.log
+@@ -56,7 +56,7 @@
+   Qt Distance Field Generator ............ yes
+   Qt Linguist ............................ yes
+   Qt Widgets Designer .................... yes
+-  kmap2qmap .............................. no
++  kmap2qmap .............................. yes
+   libclang found ......................... no
+   pixeltool .............................. yes
+   qdbus .................................. yes
+@@ -75,7 +75,6 @@
+  * Qt6DBus (required version >= 6.12.0)
+  * Qt6DBusPrivate (required version == 6.12.0)
+  * Qt6DBusTools (required version >= 6.12.0)
+- * Qt6GuiPrivate (required version == 6.12.0)
+  * Qt6GuiTools (required version >= 6.12.0)
+  * Qt6InputSupportPrivate (required version >= 6.12.0)
+  * Qt6Network (required version >= 6.12.0)
+@@ -113,12 +112,16 @@
+ 'qttools-everywhere-src-6.12.0/src/qdoc/catch/CMakeLists.txt' -> '/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/src/overlay/qttools-everywhere-src-6.12.0/src/qdoc/catch/CMakeLists.txt'
+ 'qttools-everywhere-src-6.12.0/src/qdoc/catch_conversions/CMakeLists.txt' -> '/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/src/overlay/qttools-everywhere-src-6.12.0/src/qdoc/catch_conversions/CMakeLists.txt'
+ 'qttools-everywhere-src-6.12.0/src/qdoc/catch_generators/CMakeLists.txt' -> '/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/src/overlay/qttools-everywhere-src-6.12.0/src/qdoc/catch_generators/CMakeLists.txt'
++--   Found libudev, version 262
++--   Found mtdev, version 1.1.7
+ -- Build files have been written to: /build/qttools-everywhere-src-6.12.0/build
+ -- CMAKE_STRIP (original): /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-gcc-wrapper-16.2.0/bin/strip
+ -- CMAKE_STRIP (used by Qt): /build/qttools-everywhere-src-6.12.0/build/libexec/qt-internal-strip
+ -- Check for working C compiler: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-gcc-wrapper-16.2.0/bin/gcc - skipped
+ -- Check for working CXX compiler: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-gcc-wrapper-16.2.0/bin/g++ - skipped
+ -- Checking for feature set changes
++-- Checking for module 'libudev'
++-- Checking for module 'mtdev'
+ -- Configuration summary shown below. It has also been written to /build/qttools-everywhere-src-6.12.0/build/config.summary
+ -- Configure summary:
+ -- Configure with --log-level=STATUS or higher to increase CMake's message verbosity. The log level does not persist across reconfigurations.
+@@ -142,6 +145,7 @@
+ -- Install configuration: "Release"
+ -- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/assistant
+ -- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/designer
++-- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/kmap2qmap
+ -- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lcheck
+ -- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lconvert
+ -- Installing: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/linguist
+@@ -683,6 +687,7 @@
+ -- Performing Test strip --keep-section - TRUE
+ -- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/assistant" to "$ORIGIN/../lib"
+ -- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/designer" to "$ORIGIN/../lib"
++-- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/kmap2qmap" to "$ORIGIN/../lib"
+ -- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lcheck" to "$ORIGIN/../lib"
+ -- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lconvert" to "$ORIGIN/../lib"
+ -- Set non-toolchain portion of runtime path of "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/linguist" to "$ORIGIN/../lib"
+@@ -757,6 +762,7 @@ SBOM:
+ [N/N] Automatic MOC for target QQuickWidgetPlugin
+ [N/N] Automatic MOC for target UiTools
+ [N/N] Automatic MOC for target assistant
++[N/N] Automatic MOC for target kmap2qmap
+ [N/N] Automatic MOC for target lcheck
+ [N/N] Automatic MOC for target lconvert
+ [N/N] Automatic MOC for target linguist
+@@ -1186,6 +1192,8 @@ SBOM:
+ [N/N] Building CXX object src/distancefieldgenerator/CMakeFiles/qdistancefieldgenerator.dir/main.cpp.o
+ [N/N] Building CXX object src/distancefieldgenerator/CMakeFiles/qdistancefieldgenerator.dir/mainwindow.cpp.o
+ [N/N] Building CXX object src/distancefieldgenerator/CMakeFiles/qdistancefieldgenerator.dir/qdistancefieldgenerator_autogen/mocs_compilation.cpp.o
++[N/N] Building CXX object src/kmap2qmap/CMakeFiles/kmap2qmap.dir/kmap2qmap_autogen/mocs_compilation.cpp.o
++[N/N] Building CXX object src/kmap2qmap/CMakeFiles/kmap2qmap.dir/main.cpp.o
+ [N/N] Building CXX object src/linguist/lcheck/CMakeFiles/lcheck.dir/__/shared/numerus.cpp.o
+ [N/N] Building CXX object src/linguist/lcheck/CMakeFiles/lcheck.dir/__/shared/translator.cpp.o
+ [N/N] Building CXX object src/linguist/lcheck/CMakeFiles/lcheck.dir/__/shared/translatormessage.cpp.o
+@@ -1395,6 +1403,7 @@ SBOM:
+ [N/N] Linking C static library src/assistant/qlitehtml/src/3rdparty/litehtml/src/gumbo/libgumbo.a
+ [N/N] Linking CXX executable bin/assistant
+ [N/N] Linking CXX executable bin/designer
++[N/N] Linking CXX executable bin/kmap2qmap
+ [N/N] Linking CXX executable bin/lcheck
+ [N/N] Linking CXX executable bin/lconvert
+ [N/N] Linking CXX executable bin/linguist
+@@ -1514,8 +1523,10 @@ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.1
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/.build-id/XX/BUILD_ID.sourceoverlay
++making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/.build-id/XX/BUILD_ID.sourceoverlay
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/assistant
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/designer
++making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/kmap2qmap
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/lcheck
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/lconvert
+ making symlink relative: /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0-debug/lib/debug/libQt6Designer.so.6.12.0
+@@ -1549,6 +1560,7 @@ separate-debug-info: recording checksum of source files for debug support...
+ separate-debug-info: warning: multiple files with build id BUILD_ID found, overwriting
+ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/assistant (build ID BUILD_ID)
+ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/designer (build ID BUILD_ID)
++separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/kmap2qmap (build ID BUILD_ID)
+ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lcheck (build ID BUILD_ID)
+ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lconvert (build ID BUILD_ID)
+ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/linguist (build ID BUILD_ID)
+@@ -1575,6 +1587,7 @@ separating debug info from /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6
+ setting SOURCE_DATE_EPOCH to timestamp 1790432805 of file "qttools-everywhere-src-6.12.0/util/recolordocsicons/recolordocsicons.py"
+ shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/assistant
+ shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/designer
++shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/kmap2qmap
+ shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lcheck
+ shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/lconvert
+ shrinking /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-qttools-6.12.0/bin/linguist
