@@ -305,9 +305,9 @@ writelog "$b" "$d"/b/"$name_b"
 cd "$d"
 # when git diff opens less, pressing q will exit with 1 which may interfere with scripts that use difflog
 if git diff --no-index --no-prefix "$@" a/"$name_a" b/"$name_b"; then
-    echo -e "${GREEN}difflog: No changes detected (Exit 0)${NC}"
+    echo -e "${GREEN}difflog: No changes detected (Exit 0)${NC}" >&2
     exit 0
 else
-    echo -e "${RED}difflog: Changes detected! (Exit 1)${NC}"
+    echo -e "${RED}difflog: Changes detected! (Exit 1)${NC}" >&2
     exit 1
 fi
