@@ -28,6 +28,19 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+get_model_capabilities() {
+    local ollama_host=${OLLAMA_HOST:-http://127.0.0.1:11434}
+
+    if [[ "$ollama_host" != http://* && "$ollama_host" != https://* ]]; then
+        ollama_host="http://${ollama_host}"
+    fi
+
+    curl --silent --show-error --fail \
+        "${ollama_host%/}/api/show" \
+        -H 'Content-Type: application/json' \
+        -d "{\"model\":\"${ANALYZER_MODEL}\"}"
+}
+
 # Variable to store the diff
 DIFF_CONTENT=""
 
@@ -127,6 +140,22 @@ if [[ $DRY_RUN -eq 1 ]]; then
     exit 0
 fi
 
+if ! MODEL_INFO=$(get_model_capabilities); then
+    log_error "Could not retrieve capabilities for Ollama model '$ANALYZER_MODEL'."
+    exit 1
+fi
+
+if ! jq -e '.capabilities | type == "array"' >/dev/null <<< "$MODEL_INFO"; then
+    log_error "Ollama returned an invalid capability response for model '$ANALYZER_MODEL'."
+    exit 1
+fi
+
+if jq -e '.capabilities | index("thinking") != null' >/dev/null <<< "$MODEL_INFO"; then
+    HAS_THINKING=1
+else
+    HAS_THINKING=0
+fi
+
 # Execute Ollama Inference
 if [[ $QUIET -eq 1 ]]; then
     log_info "Analyzing diff via Ollama (silently in background)..."
@@ -134,18 +163,22 @@ if [[ $QUIET -eq 1 ]]; then
 else
     log_info "Analyzing diff via Ollama (streaming live)..."
 
-    # tee >(...) forks the stream:
-    # Fork 1 (stdout) goes purely into LLM_OUTPUT variable.
-    # Fork 2 (stderr) is filtered by sed: applies grey, resets at </think>, and deletes (!d) all remaining lines so they don't print to screen.
-    LLM_OUTPUT=$(ollama run "$ANALYZER_MODEL" 2>/dev/null <<< "$PROMPT" \
-        | tee >(sed --unbuffered -n -e '1,/<\/think>/!d' -e "1s/^/${GREY}/" -e "s/<\/think>/<\/think>${NC}/" -e 'p' >&2))
+    if [[ $HAS_THINKING -eq 1 ]]; then
+        # tee >(...) forks the stream:
+        # Fork 1 (stdout) goes purely into LLM_OUTPUT variable.
+        # Fork 2 (stderr) prints only the thinking trace in grey.
+        LLM_OUTPUT=$(ollama run "$ANALYZER_MODEL" 2>/dev/null <<< "$PROMPT" \
+            | tee >(sed --unbuffered -n -e '1,/<\/think>/!d' -e "1s/^/${GREY}/" -e "s/<\/think>/<\/think>${NC}/" -e 'p' >&2))
 
-    # Failsafe color reset in case the model stops abruptly before </think>
-    echo -e "${NC}" >&2
+        # Failsafe color reset in case the model stops abruptly before </think>
+        echo -e "${NC}" >&2
+    else
+        LLM_OUTPUT=$(ollama run "$ANALYZER_MODEL" 2>/dev/null <<< "$PROMPT")
+    fi
 fi
 
 # --- Extract Thinking vs. Final Answer using </think> as the delimiter ---
-if grep -q "</think>" <<< "$LLM_OUTPUT"; then
+if [[ $HAS_THINKING -eq 1 ]] && grep -q "</think>" <<< "$LLM_OUTPUT"; then
     FINAL_ANSWER_RAW=$(awk '/<\/think>/{flag=1; next} flag' <<< "$LLM_OUTPUT")
 else
     FINAL_ANSWER_RAW="$LLM_OUTPUT"
