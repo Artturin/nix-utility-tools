@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ANALYZER_MODEL=${NIX_LOG_DIFF_ANALYZER_MODEL:?set NIX_LOG_DIFF_ANALYZER_MODEL to an Ollama model name}
+ANALYZER_MODEL=${NIX_LOG_DIFF_ANALYZER_MODEL:-$(ollama list | tail -n +2 | fzf | awk '{print $1}')}
 
 # Color definitions using raw escape bytes (ANSI-C quoting)
 ESC=$'\033'
