@@ -20,6 +20,7 @@ fn run_with_env(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Run {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nix-log-diff-analyzer"))
         .args(args)
         .env_clear()
+        .envs(std::env::var_os("SSL_CERT_FILE").map(|cert| ("SSL_CERT_FILE", cert))) // the HTTP client needs CA certificates even for plain http
         .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
