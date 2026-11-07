@@ -9,10 +9,8 @@ NC="${ESC}[0m"
 
 usage() {
     cat >&2 <<'EOF'
-usage: ./difflog [--no-follow] [--keep-jobs] [--keep-progress]
-                 [--keep-phase-times] [--keep-pids] [--keep-glib-times]
-                 [--keep-test-times] [--keep-dbus] [--keep-cmake-times]
-                 [--keep-build-ids] [--keep-ctest-times] [--keep-tmpdirs]
+usage: ./difflog [--no-follow] [--keep-timings] [--keep-paths]
+                 [--keep-jobs] [--keep-progress] [--keep-pids]
                  [--sort-lines]
                  $out1 $out2 [git diff options...]
 
@@ -40,27 +38,27 @@ Normalization includes:
  * removing stdenv phase footers ("buildPhase completed in 1 minutes
    5 seconds"); they are only printed for phases of 30s or more, so
    the whole line is dropped, not just the duration
-   (disable with --keep-phase-times)
+   (disable with --keep-timings)
  * replacing process ids ("(process:842):", "Started with PID: 1766")
    with N (disable with --keep-pids)
  * replacing random temp dir names ("/build/qsb-RoAGjy/...": six random
    letters after "NAME-" directly under /build or /tmp) with XXXXXX
-   (disable with --keep-tmpdirs)
+   (disable with --keep-paths)
  * replacing GLib log timestamps "**: 07:21:29.789:" with a constant
-   (disable with --keep-glib-times)
+   (disable with --keep-timings)
  * replacing the Qt Test "Totals: ..., 4393ms" duration with Nms
-   (disable with --keep-test-times)
+   (disable with --keep-timings)
  * replacing random D-Bus session address parts
    ("/tmp/dbus-ggOBj2AOpQ,guid=12ad...") with constants
-   (disable with --keep-dbus)
+   (disable with --keep-paths)
  * replacing CMake step timings ("-- Configuring done (14.6s)") with
-   "(Ns)" (disable with --keep-cmake-times)
+   "(Ns)" (disable with --keep-timings)
  * replacing GN completion timings ("-- GN Done. Made ... in 20890ms")
-   with "Nms"
+   with "Nms" (disable with --keep-timings)
  * replacing build IDs, both "build id 36ad3d..." / "(build ID 36ad3d...)"
    in the fixup phase output and in ".build-id/36/ad3d...." file names,
    with constants
-   (disable with --keep-build-ids)
+   (disable with --keep-paths)
  * replacing job and thread counts (-j2, -j23, --jobs=4, "using 97
    parallel threads") with N
    (disable with --keep-jobs)
@@ -69,7 +67,7 @@ Normalization includes:
    start of lines; both the counter and the total are replaced
    (disable with --keep-progress)
  * replacing CTest durations ("Passed    0.02 sec", "Total Test time
-   (real) =   3.39 sec") with "N sec" (disable with --keep-ctest-times)
+   (real) =   3.39 sec") with "N sec" (disable with --keep-timings)
  * sorting runs of certain common messages, to reduce
    nondeterminism from concurrency
 
@@ -124,35 +122,36 @@ striplog() {
           # The padding before the number varies with its width, so it is
           # swallowed too.  Must run before the "N/N" counter rule below.
           s{(Total Test time \(\w+\) =)[ ]+\d+(?:\.\d+)?[ ]+sec}{$1 N sec}g
-              if $ENV{DIFFLOG_STRIP_CTEST_TIMES};
+              if $ENV{DIFFLOG_STRIP_TIMES};
           s{^((?:[\w-]+: )?[ ]*\d+/\d+ Test[ ]+\#\d+: [^\n]*?)[ ]+\d+(?:\.\d+)?[ ]+sec$}{$1 N sec}gm
-              if $ENV{DIFFLOG_STRIP_CTEST_TIMES};
+              if $ENV{DIFFLOG_STRIP_TIMES};
 
           # stdenv phase footers: "buildPhase completed in 1 minutes 5 seconds".
           # stdenv only prints these for phases that took 30s or more, so the
           # line itself can be present in one log and absent in the other;
           # drop the whole line rather than just normalizing the duration.
           s{^\S+ completed in (?:\d+ (?:hours|minutes|seconds)[ ]?)+\n}{}gm
-              if $ENV{DIFFLOG_STRIP_PHASE_TIMES};
+              if $ENV{DIFFLOG_STRIP_TIMES};
 
           # Random D-Bus session addresses:
           # "/tmp/dbus-ggOBj2AOpQ,guid=12ad2f3756dd6a0ce19958386ae8a070"
-          s{/tmp/dbus-\K[A-Za-z0-9]+}{RANDOM}g if $ENV{DIFFLOG_STRIP_DBUS};
-          s{,guid=\K[0-9a-f]{32}\b}{GUID}g if $ENV{DIFFLOG_STRIP_DBUS};
+          s{/tmp/dbus-\K[A-Za-z0-9]+}{RANDOM}g if $ENV{DIFFLOG_STRIP_PATHS};
+          s{,guid=\K[0-9a-f]{32}\b}{GUID}g if $ENV{DIFFLOG_STRIP_PATHS};
 
           # CMake step timings: "-- Configuring done (14.6s)"
-          s{\bdone \(\K\d+(?:\.\d+)?(?=s\))}{N}g if $ENV{DIFFLOG_STRIP_CMAKE_TIMES};
+          s{\bdone \(\K\d+(?:\.\d+)?(?=s\))}{N}g if $ENV{DIFFLOG_STRIP_TIMES};
 
           # GN completion timings: "-- GN Done. Made ... in 20890ms"
-          s{^(-- GN Done\. Made .+ in )\d+ms\b}{$1Nms}gm;
+          s{^(-- GN Done\. Made .+ in )\d+ms\b}{$1Nms}gm
+              if $ENV{DIFFLOG_STRIP_TIMES};
 
           # Build IDs as printed by the fixup phase:
           # "separating debug info from /nix/store/...-foo/bin/x (build ID 36ad3d2c...)"
           # and the file names derived from them:
           # ".../lib/debug/.build-id/36/ad3d2c92b6e4....sourceoverlay"
           # and "separate-debug-info: warning: multiple files with build id 1238... found"
-          s{\bbuild id \K[0-9a-f]{16,}\b}{BUILD_ID}gi if $ENV{DIFFLOG_STRIP_BUILD_IDS};
-          s{/\.build-id/\K[0-9a-f]{2}/[0-9a-f]{14,}}{XX/BUILD_ID}g if $ENV{DIFFLOG_STRIP_BUILD_IDS};
+          s{\bbuild id \K[0-9a-f]{16,}\b}{BUILD_ID}gi if $ENV{DIFFLOG_STRIP_PATHS};
+          s{/\.build-id/\K[0-9a-f]{2}/[0-9a-f]{14,}}{XX/BUILD_ID}g if $ENV{DIFFLOG_STRIP_PATHS};
 
           # GLib log lines: "(process:842): Domain-CRITICAL **: 07:21:29.789: msg"
           s{\(process:\K\d+(?=\):)}{N}g if $ENV{DIFFLOG_STRIP_PIDS};
@@ -163,13 +162,13 @@ striplog() {
           # six random letters, directly under /build or /tmp, e.g.
           # "/build/qsb-RoAGjy/qsb_spv_temp".
           s{(?:/build|/tmp)/[A-Za-z][\w]*-\K[A-Za-z]{6}(?=/)}{XXXXXX}g
-              if $ENV{DIFFLOG_STRIP_TMPDIRS};
+              if $ENV{DIFFLOG_STRIP_PATHS};
           s{\*\*: \K\d\d:\d\d:\d\d\.\d+(?=:)}{HH:MM:SS.mmm}g
-              if $ENV{DIFFLOG_STRIP_GLIB_TIMES};
+              if $ENV{DIFFLOG_STRIP_TIMES};
 
           # Qt Test totals: "Totals: 35 passed, 0 failed, 0 skipped, 0 blacklisted, 4393ms"
           s{\bTotals: [^\n]*?, \K\d+(?:\.\d+)?ms\b}{Nms}g
-              if $ENV{DIFFLOG_STRIP_TEST_TIMES};
+              if $ENV{DIFFLOG_STRIP_TIMES};
 
           # Job counts depend on the build machine: -j2 vs -j23.
           s{(?<![\w-])-j[ ]?\K\d+\b}{N}g if $ENV{DIFFLOG_STRIP_JOBS};
@@ -227,33 +226,21 @@ resolve() {
 }
 
 follow=1
+strip_timings=1
+strip_paths=1
 strip_jobs=1
 strip_progress=1
-strip_phase_times=1
 strip_pids=1
-strip_glib_times=1
-strip_test_times=1
-strip_dbus=1
-strip_cmake_times=1
-strip_build_ids=1
-strip_ctest_times=1
-strip_tmpdirs=1
 sort_lines=0
 while (( $# )); do
     case $1 in
         -h|--help) usage; exit 0 ;;
         --no-follow) follow=0; shift ;;
+        --keep-timings) strip_timings=0; shift ;;
+        --keep-paths) strip_paths=0; shift ;;
         --keep-jobs) strip_jobs=0; shift ;;
         --keep-progress) strip_progress=0; shift ;;
-        --keep-phase-times) strip_phase_times=0; shift ;;
         --keep-pids) strip_pids=0; shift ;;
-        --keep-glib-times) strip_glib_times=0; shift ;;
-        --keep-test-times) strip_test_times=0; shift ;;
-        --keep-dbus) strip_dbus=0; shift ;;
-        --keep-cmake-times) strip_cmake_times=0; shift ;;
-        --keep-build-ids) strip_build_ids=0; shift ;;
-        --keep-ctest-times) strip_ctest_times=0; shift ;;
-        --keep-tmpdirs) strip_tmpdirs=0; shift ;;
         --sort-lines) sort_lines=1; shift ;;
         --) shift; break ;;
         -*) echo "difflog: unknown option: $1 (put git diff options after the two paths)" >&2
@@ -271,17 +258,11 @@ b=$(resolve "$2")
 shift 2
 
 # Read by the perl filter in striplog; empty string = off.
+if (( strip_timings )); then export DIFFLOG_STRIP_TIMES=1; else unset DIFFLOG_STRIP_TIMES; fi
+if (( strip_paths )); then export DIFFLOG_STRIP_PATHS=1; else unset DIFFLOG_STRIP_PATHS; fi
 if (( strip_jobs )); then export DIFFLOG_STRIP_JOBS=1; else unset DIFFLOG_STRIP_JOBS; fi
 if (( strip_progress )); then export DIFFLOG_STRIP_PROGRESS=1; else unset DIFFLOG_STRIP_PROGRESS; fi
-if (( strip_phase_times )); then export DIFFLOG_STRIP_PHASE_TIMES=1; else unset DIFFLOG_STRIP_PHASE_TIMES; fi
 if (( strip_pids )); then export DIFFLOG_STRIP_PIDS=1; else unset DIFFLOG_STRIP_PIDS; fi
-if (( strip_glib_times )); then export DIFFLOG_STRIP_GLIB_TIMES=1; else unset DIFFLOG_STRIP_GLIB_TIMES; fi
-if (( strip_test_times )); then export DIFFLOG_STRIP_TEST_TIMES=1; else unset DIFFLOG_STRIP_TEST_TIMES; fi
-if (( strip_dbus )); then export DIFFLOG_STRIP_DBUS=1; else unset DIFFLOG_STRIP_DBUS; fi
-if (( strip_cmake_times )); then export DIFFLOG_STRIP_CMAKE_TIMES=1; else unset DIFFLOG_STRIP_CMAKE_TIMES; fi
-if (( strip_build_ids )); then export DIFFLOG_STRIP_BUILD_IDS=1; else unset DIFFLOG_STRIP_BUILD_IDS; fi
-if (( strip_ctest_times )); then export DIFFLOG_STRIP_CTEST_TIMES=1; else unset DIFFLOG_STRIP_CTEST_TIMES; fi
-if (( strip_tmpdirs )); then export DIFFLOG_STRIP_TMPDIRS=1; else unset DIFFLOG_STRIP_TMPDIRS; fi
 
 d=$(mktemp -d)
 trap 'rm -rf "$d"' EXIT
