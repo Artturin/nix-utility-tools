@@ -19,8 +19,8 @@ pub enum LlmEndpoint {
     Openai,
 }
 
-/// Ask a local LLM whether a diff of two sorted Nix build logs is
-/// inconsequential noise or a consequential change.
+/// Ask an LLM (local or an OpenAI-compatible remote) whether a diff of two
+/// sorted Nix build logs is inconsequential noise or a consequential change.
 ///
 /// Exit status: 0 = inconsequential, 1 = consequential or error,
 /// 2 = no usable answer (unrecognised output, or the thinking budget ran out).

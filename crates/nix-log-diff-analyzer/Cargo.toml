@@ -2,7 +2,7 @@
 name = "nix-log-diff-analyzer"
 version.workspace = true
 edition.workspace = true
-description = "Ask a local LLM (ollama or llama.cpp) whether a diff of two sorted Nix build logs is noise or consequential"
+description = "Ask an LLM (local ollama or llama.cpp, or any OpenAI-compatible API such as Gemini) whether a diff of two sorted Nix build logs is noise or consequential"
 
 [dependencies]
 anstream = "1.0.0"

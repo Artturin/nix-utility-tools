@@ -1,6 +1,7 @@
-//! LLM calling. Both ollama and llama.cpp serve the OpenAI-compatible API,
-//! so a single client talks to either; the selected endpoint only decides
-//! the default address.
+//! LLM calling. ollama, llama.cpp and hosted services (e.g. Gemini) all serve
+//! the OpenAI-compatible API, so a single client talks to any of them; the
+//! selected endpoint only decides the default address and which non-standard
+//! options are sent.
 //!
 //! - `openai.rs`: HTTP transport (models, chat request).
 //! - `stream.rs`: decoding of the streamed response and budget enforcement.

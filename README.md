@@ -10,7 +10,8 @@ Use tools in `bin/` with `PATH=$PWD/bin` because they depend on each other.
   nondeterministic differences.
 - `diffoscope-nix`: runs diffoscope on two Nix store paths after masking
   irrelevant embedded store hashes and build IDs.
-- `nix-log-diff-analyzer` (experimental): uses the local Ollama model named
+- `nix-log-diff-analyzer` (experimental): uses an LLM (local ollama or
+  llama.cpp, or an OpenAI-compatible remote such as Gemini) with the model named
   by `NIX_LOG_DIFF_ANALYZER_MODEL` to classify a build-log diff as
   consequential or environmental noise. Pass this variable with `safe-run
   --env`; it does not inherit shell variables. Do not fully trust its result;
@@ -37,7 +38,7 @@ Compare two build results with diffoscope while ignoring embedded store hashes:
 safe-run diffoscope-nix ./result ./result1
 ```
 
-Classify a sorted and deduplicated build-log diff with the local Ollama model:
+Classify a sorted and deduplicated build-log diff with an LLM (ollama by default):
 
 ```sh
 difflog --sort-lines ./result ./result1 | uniq | safe-run --pipe --env NIX_LOG_DIFF_ANALYZER_MODEL=qwen nix-log-diff-analyzer
