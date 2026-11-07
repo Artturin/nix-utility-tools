@@ -1,0 +1,37 @@
+Analyze this diff between two Nix build logs. Determine if the differences are consequential to the final build output, or if they are just inconsequential environmental noise.
+
+Nix builds are sandboxed, so specific types of harmless variations are expected between identical builds.
+IMPORTANT CONTEXT: The original build logs were pre-sorted using the `sort` command before this diff was generated. This means log interleaving issues are mostly mitigated, but lines may still shift if paths or hashes change.
+
+# INCONSEQUENTIAL (Noise) - Ignore these entirely:
+- Temporary file paths and randomized directory names (e.g., /tmp/..., /build/tmp...).
+- Randomized runtime identifiers (e.g., DBus daemon paths, GUIDs, UUIDs, memory addresses).
+- Hardware-dependent metrics (e.g., thread counts, parallel jobs, batch sizes).
+- Timestamps, elapsed time, build times, build speeds, and performance logs (variations due to system load are expected).
+- Timestamps, elapsed time, build speeds, and performance logs.
+- PIDs (Process IDs) or port numbers.
+- Nix framework informational messages (e.g., "structuredAttrs is enabled").
+- Deduplicated build flags (e.g., multiple identical compiler or CMake arguments like "-DQT_OPTIONAL_TOOLS_PATH=..." being reduced to a single instance, provided the flag is still present at least once).
+- KNOWN NIX BUG: The specific absence/removal of fixupPhase logs (like "checking for references to /build/", "patching script interpreter paths", "shrinking RPATHs", or "stripping") ONLY when applied to "-debug" outputs. (This is a known bug when structuredAttrs is enabled and is inconsequential).
+
+# CONSEQUENTIAL - Flag these:
+- Build system feature checks (e.g., CMake/configure detecting or failing to detect a dependency, header, or capability).
+- Compiler warnings, errors, or missing symbols.
+- Changes in library linking, included header paths, or the addition/complete removal of flags (Note: mere deduplication of existing flags is NOISE).
+- Differences in test suite passes/failures, skipped tests, or functional outputs.
+- NEW OR REMOVED TARGETS/ARTIFACTS: The addition or complete removal of build targets, object files (.o, .cpp.o), shared/static libraries (.so, .a), or executables (e.g., missing "Building CXX object", "Linking CXX shared library", or "Automatic MOC for target" lines).
+- NEW FIXUP PATHS: Entirely new paths (not just temp path shifts) appearing in fixup phases (e.g., a completely new dependency or output path appearing under "shrinking RPATHs" or "patching script interpreter paths").
+- THE FALLBACK RULE (UNMATCHED LINES): Because these logs were pre-sorted, if a line is completely added or completely removed from the build steps and does NOT explicitly match one of the INCONSEQUENTIAL noise categories above, you MUST default to flagging it as CONSEQUENTIAL.
+
+# DIFF TO ANALYZE:
+<diff_content>
+{{DIFF}}
+</diff_content>
+
+# OUTPUT FORMAT
+If ALL changes in the diff are inconsequential noise, output exactly:
+False
+
+If there is ANY consequential change, output:
+True
+[Verbose explanation of exactly what changed and why it functionally impacts the build result]
