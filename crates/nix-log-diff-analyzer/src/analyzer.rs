@@ -37,26 +37,26 @@ pub fn run(cli: &Cli) -> Result<Outcome> {
     log::info!(
         "Analyzing diff via {} ({})...",
         client.name(),
-        if cli.quiet { "silently in background" } else { "streaming live" }
+        if cli.show_thinking { "streaming live" } else { "silently in background" }
     );
     let sampling = Sampling::for_endpoint(cli.endpoint);
-    let generation = generate(&client, &model, &prompt::build(&diff), &sampling, &limits, cli.quiet)?;
+    let generation = generate(&client, &model, &prompt::build(&diff), &sampling, &limits, cli.show_thinking)?;
     Ok(report(&generation))
 }
 
-/// Run the model, streaming its thinking trace to stderr unless `quiet`.
+/// Run the model, streaming its thinking trace to stderr when `show_thinking`.
 fn generate(
     client: &OpenAiClient,
     model: &str,
     prompt: &str,
     sampling: &Sampling,
     limits: &Limits,
-    quiet: bool,
+    show_thinking: bool,
 ) -> Result<Generation> {
     let mut thinking = ThinkingPrinter::default();
     let result = {
         let mut on_event = |event: Event<'_>| {
-            if !quiet {
+            if show_thinking {
                 thinking.handle(event);
             }
         };
@@ -118,7 +118,7 @@ fn read_diff(path: Option<&Path>) -> Result<String> {
             buf
         }
         None => bail!(
-            "Missing diff input.\nUsage: nix-log-diff-analyzer [-q|--quiet] [--dry-run] <path-to-diff-file>\n   or: command | nix-log-diff-analyzer [-q|--quiet] [--dry-run]"
+            "Missing diff input.\nUsage: nix-log-diff-analyzer [-t|--show-thinking] [--dry-run] <path-to-diff-file>\n   or: command | nix-log-diff-analyzer [-t|--show-thinking] [--dry-run]"
         ),
     };
     if diff.trim().is_empty() {

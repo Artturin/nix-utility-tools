@@ -145,7 +145,7 @@ fn thinking_is_streamed_to_stderr_for_both_server_flavours() {
             ],
         );
 
-        let result = analyze(&server, &[]);
+        let result = analyze(&server, &["--show-thinking"]);
 
         assert_eq!(result.code, 0, "{field}: {}", result.stderr);
         assert!(result.stderr.contains("checking targets"), "{field}: {}", result.stderr);
@@ -154,7 +154,7 @@ fn thinking_is_streamed_to_stderr_for_both_server_flavours() {
 }
 
 #[test]
-fn quiet_hides_the_thinking_trace() {
+fn thinking_is_hidden_by_default() {
     let mut server = Server::new();
     chat(
         &mut server,
@@ -164,7 +164,7 @@ fn quiet_hides_the_thinking_trace() {
         ],
     );
 
-    let result = analyze(&server, &["--quiet"]);
+    let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 0);
     assert!(!result.stderr.contains("secret thoughts"), "{}", result.stderr);
@@ -181,7 +181,7 @@ fn no_colour_codes_when_output_is_not_a_terminal() {
         ],
     );
 
-    let result = analyze(&server, &[]);
+    let result = analyze(&server, &["--show-thinking"]);
 
     assert!(!result.stderr.contains('\u{1b}'), "{:?}", result.stderr);
     assert!(!result.stdout.contains('\u{1b}'), "{:?}", result.stdout);

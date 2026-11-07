@@ -30,9 +30,9 @@ pub struct Cli {
     /// Diff file to analyze (reads stdin when omitted)
     pub diff_file: Option<PathBuf>,
 
-    /// Don't stream the model's thinking trace to stderr
-    #[arg(short, long)]
-    pub quiet: bool,
+    /// Stream the model's thinking trace to stderr
+    #[arg(short = 't', long)]
+    pub show_thinking: bool,
 
     /// Show what would be sent, without contacting the LLM server
     #[arg(long)]
