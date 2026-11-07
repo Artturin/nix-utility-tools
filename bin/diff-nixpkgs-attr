@@ -7,13 +7,6 @@
 
 set -euo pipefail
 
-# --- safe-run guard (delete this block to disable) ---------------------------
-if [[ -z "${SYSTEMD_EXEC_PID:-}" ]]; then
-    echo "Not running under systemd-run; try: safe-run $0 $*" >&2
-    exit 1
-fi
-# --- end safe-run guard ------------------------------------------------------
-
 # difflog and diffoscope-nix live next to this script
 script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 PATH="$script_dir${PATH:+:$PATH}"

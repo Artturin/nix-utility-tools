@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- easily removable: refuse to run outside a systemd-run sandbox ---
-# diffoscope parses arbitrary binaries/archives with lots of helper tools,
-# so run it via safe-run (systemd-run --user). Delete this block to disable.
-if [[ -z "${SYSTEMD_EXEC_PID:-}" ]]; then
-    echo "diffoscope-nix: not running under systemd-run; run it via safe-run (or remove this check)" >&2
-    exit 1
-fi
-# --- end of systemd check ---
-
 usage() {
     cat >&2 <<'EOF'
 usage: diffoscope-nix [-n|--dry-run] [--keep-build-id] $path1 $path2 [diffoscope args...]
