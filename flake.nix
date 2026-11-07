@@ -107,7 +107,10 @@
         packages = {
           default = self.packages.${system}.${defaultCrate};
         }
-        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates;
+        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates
+        // {
+          diff-nixpkgs-attr = mkScripts pkgs (crates.diffoscope-nix pkgs);
+        };
 
         apps.default = utils.lib.mkApp {
           drv = self.packages.${system}.default;

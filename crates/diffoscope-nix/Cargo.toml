@@ -1,0 +1,19 @@
+[package]
+name = "diffoscope-nix"
+version.workspace = true
+edition.workspace = true
+description = "Run diffoscope on two Nix store paths, ignoring differences that are only due to differing store path hashes and GNU build IDs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+ctrlc = { version = "3.5.2", features = ["termination"] }
+env_logger = "0.11.11"
+filetime = "0.2.29"
+flate2 = "1.1.11"
+goblin = { version = "0.10.7", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
+log = "0.4.35"
+regex = "1.13.1"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
+which = "8.0.6"

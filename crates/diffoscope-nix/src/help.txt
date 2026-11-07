@@ -1,0 +1,16 @@
+Run diffoscope on two Nix store paths (files or directories), ignoring differences that are only due to differing store path hashes, such as RPATHs or embedded references (and the matching hex dump lines).
+
+Works by copying each input to a temp dir and replacing every /nix/store/<32-char hash> in file contents and symlink targets with a constant placeholder (same length, so offsets don't move), then running diffoscope on the copies. Mtimes and modes are preserved.
+
+Upper-cased store paths ("/nix/store/RJXGV8QS...-qtbase", as embedded by some debug builds) are handled too, replaced by an upper-case placeholder.
+
+Store paths stored as UTF-16LE (Qt string literals) are handled too.
+
+Relative references without the /nix/store prefix are handled too, e.g. "${CMAKE_CURRENT_LIST_DIR}/../../../../<hash>-name" in CMake config files or "../<hash>-name" symlink targets: any path component that is 32 nixbase32 characters followed by "-name" has its hash replaced.
+
+Gzip files (detected by their magic bytes, e.g. man pages) that contain a store hash are decompressed, rewritten and recompressed (without name or timestamp in the gzip header), so the same content gives byte-identical files on both sides. Gzip files without a store hash are left as they are. Other compressed formats (xz, zstd, bzip2, zip/jar, ...) are not looked into.
+
+Hashes of *different* dependencies are masked too, so a dependency being swapped for another build of the same name won't show up -- but a changed name or version (qttools-6.12.0 -> qttools-6.13.0) still will.
+
+Anything after the two paths is passed to diffoscope unchanged, e.g.: diffoscope-nix $a $b --html out.html. Options that diffoscope-nix has itself (-n, --keep-build-id, -h) are still recognised there; put -- before the diffoscope arguments to pass those on.
+diffoscope is always run with --text-color always (colors even when piped); pass --text-color auto or never after the paths to override. A note is printed to stderr only when build IDs are kept (--keep-build-id). Exit status is diffoscope's (1 = differences found).
