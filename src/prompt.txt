@@ -8,7 +8,6 @@ IMPORTANT CONTEXT: The original build logs were pre-sorted using the `sort` comm
 - Randomized runtime identifiers (e.g., DBus daemon paths, GUIDs, UUIDs, memory addresses).
 - Hardware-dependent metrics (e.g., thread counts, parallel jobs, batch sizes).
 - Timestamps, elapsed time, build times, build speeds, and performance logs (variations due to system load are expected).
-- Timestamps, elapsed time, build speeds, and performance logs.
 - PIDs (Process IDs) or port numbers.
 - Nix framework informational messages (e.g., "structuredAttrs is enabled").
 - Deduplicated build flags (e.g., multiple identical compiler or CMake arguments like "-DQT_OPTIONAL_TOOLS_PATH=..." being reduced to a single instance, provided the flag is still present at least once).

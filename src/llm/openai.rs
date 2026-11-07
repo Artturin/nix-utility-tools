@@ -1,18 +1,13 @@
-//! OpenAI-compatible client: `/v1/models` and `/v1/chat/completions`
-//! (server-sent events). Works with ollama and llama.cpp's `llama-server`.
-//!
-//! Reasoning is read from `delta.reasoning_content` (llama.cpp) or
-//! `delta.reasoning` (ollama). If a server leaves the thinking inline in the
-//! content instead, `parse` strips it afterwards.
-
-use std::io::{BufRead, BufReader};
+//! OpenAI-compatible HTTP transport: `/v1/models` and `/v1/chat/completions`.
+//! Works with ollama and llama.cpp's `llama-server`. Decoding of the streamed
+//! reply lives in `stream.rs`.
 
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::blocking::{Client, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::{Event, Generation, Sampling};
+use super::{Event, Generation, Limits, Sampling, stream};
 
 pub struct OpenAiClient {
     label: &'static str,
@@ -79,6 +74,7 @@ impl OpenAiClient {
         model: &str,
         prompt: &str,
         sampling: &Sampling,
+        limits: &Limits,
         on_event: &mut dyn FnMut(Event<'_>),
     ) -> Result<Generation> {
         let request = ChatRequest {
@@ -93,7 +89,7 @@ impl OpenAiClient {
             temperature: sampling.temperature,
             top_p: sampling.top_p,
             top_k: sampling.top_k,
-            max_tokens: sampling.max_tokens,
+            max_tokens: limits.server_cap(),
         };
 
         let response = self
@@ -104,34 +100,7 @@ impl OpenAiClient {
         let response = ensure_success(response)
             .with_context(|| format!("{} rejected the chat request", self.label))?;
 
-        let mut generation = Generation::default();
-        for line in BufReader::new(response).lines() {
-            let line = line.with_context(|| format!("reading {} stream", self.label))?;
-            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
-                continue; // blank keep-alive lines, comments
-            };
-            if data.is_empty() {
-                continue;
-            }
-            if data == "[DONE]" {
-                break;
-            }
-            let chunk: Chunk = serde_json::from_str(data)
-                .map_err(|e| anyhow!("invalid {} stream chunk ({e}): {data}", self.label))?;
-            if let Some(error) = chunk.error {
-                bail!("{} error: {error}", self.label);
-            }
-            for choice in chunk.choices {
-                let delta = choice.delta;
-                for thinking in [delta.reasoning_content, delta.reasoning].into_iter().flatten() {
-                    generation.record(Event::Thinking(&thinking), on_event);
-                }
-                if let Some(content) = delta.content {
-                    generation.record(Event::Content(&content), on_event);
-                }
-            }
-        }
-        Ok(generation)
+        stream::read_generation(response, self.label, limits, on_event)
     }
 
     fn url(&self, path: &str) -> Result<Url> {
@@ -157,7 +126,8 @@ struct ChatRequest<'a> {
     temperature: f32,
     top_p: f32,
     top_k: u32,
-    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -166,34 +136,9 @@ struct Message<'a> {
     content: &'a str,
 }
 
-#[derive(Deserialize)]
-struct Chunk {
-    #[serde(default)]
-    choices: Vec<Choice>,
-    #[serde(default)]
-    error: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct Choice {
-    #[serde(default)]
-    delta: Delta,
-}
-
-#[derive(Deserialize, Default)]
-struct Delta {
-    #[serde(default)]
-    content: Option<String>,
-    /// llama.cpp
-    #[serde(default)]
-    reasoning_content: Option<String>,
-    /// ollama
-    #[serde(default)]
-    reasoning: Option<String>,
-}
-
-/// Accept `host`, `host:port` or a full URL; always returns a URL whose path
-/// ends in `/` so `Url::join` appends endpoints instead of replacing them.
+/// Accept `host`, `host:port` or a full URL. A trailing `/v1` is dropped
+/// (endpoints add it), and the path always ends in `/` so `Url::join`
+/// appends endpoints instead of replacing the last segment.
 fn parse_host(raw: &str, default_port: u16) -> Result<Url> {
     let raw = raw.trim();
     let has_scheme = raw.contains("://");
@@ -208,10 +153,15 @@ fn parse_host(raw: &str, default_port: u16) -> Result<Url> {
         url.set_port(Some(default_port))
             .map_err(|()| anyhow!("host '{raw}' cannot carry a port"))?;
     }
-    if !url.path().ends_with('/') {
-        let path = format!("{}/", url.path());
-        url.set_path(&path);
+
+    let mut path = url.path().to_owned();
+    if !path.ends_with('/') {
+        path.push('/');
     }
+    if let Some(prefix) = path.strip_suffix("/v1/") {
+        path = format!("{prefix}/");
+    }
+    url.set_path(&path);
     Ok(url)
 }
 
@@ -223,4 +173,56 @@ fn ensure_success(response: Response) -> Result<Response> {
     }
     let body = response.text().unwrap_or_default();
     bail!("HTTP {status}: {}", body.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host(raw: &str) -> String {
+        parse_host(raw, 11434).unwrap().to_string()
+    }
+
+    #[test]
+    fn bare_host_gets_scheme_and_default_port() {
+        assert_eq!(host("localhost"), "http://localhost:11434/");
+    }
+
+    #[test]
+    fn explicit_port_is_kept() {
+        assert_eq!(host("127.0.0.1:8080"), "http://127.0.0.1:8080/");
+        assert_eq!(host("http://example.org:9000"), "http://example.org:9000/");
+    }
+
+    #[test]
+    fn full_url_keeps_its_scheme() {
+        assert_eq!(host("https://example.org"), "https://example.org/");
+    }
+
+    #[test]
+    fn trailing_v1_is_dropped() {
+        assert_eq!(host("http://h:1/v1"), "http://h:1/");
+        assert_eq!(host("http://h:1/v1/"), "http://h:1/");
+        assert_eq!(host("https://x.org/api/v1"), "https://x.org/api/");
+    }
+
+    #[test]
+    fn path_prefixes_are_kept() {
+        assert_eq!(host("http://h/ollama"), "http://h/ollama/");
+        assert_eq!(host("http://h/v10"), "http://h/v10/");
+    }
+
+    #[test]
+    fn endpoints_join_correctly_with_or_without_v1() {
+        for raw in ["http://h:1", "http://h:1/v1", "http://h:1/v1/"] {
+            let base = parse_host(raw, 1).unwrap();
+            assert_eq!(base.join("v1/models").unwrap().as_str(), "http://h:1/v1/models");
+        }
+    }
+
+    #[test]
+    fn garbage_is_rejected() {
+        assert!(parse_host("http://", 1).is_err());
+        assert!(parse_host("", 1).is_err());
+    }
 }
