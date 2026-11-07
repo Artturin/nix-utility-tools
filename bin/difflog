@@ -11,6 +11,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: ./difflog [--no-follow] [--keep-timings] [--keep-paths]
                  [--keep-jobs] [--keep-progress] [--keep-pids]
+                 [--keep-kernel-version]
                  [--sort-lines]
                  $out1 $out2 [git diff options...]
 
@@ -44,6 +45,9 @@ Normalization includes:
  * replacing random temp dir names ("/build/qsb-RoAGjy/...": six random
    letters after "NAME-" directly under /build or /tmp) with XXXXXX
    (disable with --keep-paths)
+ * replacing the kernel version CMake prints ("CMAKE_HOST_SYSTEM:
+   "Linux-6.18.57"", "CMAKE_HOST_SYSTEM_VERSION: "6.18.57"") with
+   KERNEL_VERSION (disable with --keep-kernel-version)
  * replacing GLib log timestamps "**: 07:21:29.789:" with a constant
    (disable with --keep-timings)
  * replacing the Qt Test "Totals: ..., 4393ms" duration with Nms
@@ -141,6 +145,14 @@ striplog() {
           # CMake step timings: "-- Configuring done (14.6s)"
           s{\bdone \(\K\d+(?:\.\d+)?(?=s\))}{N}g if $ENV{DIFFLOG_STRIP_TIMES};
 
+          # Host kernel version printed by CMake:
+          # -- CMAKE_HOST_SYSTEM: "Linux-6.18.57"
+          # -- CMAKE_HOST_SYSTEM_VERSION: "6.18.57"
+          s{\bCMAKE_(?:HOST_)?SYSTEM: "Linux-\K[^"]+(?=")}{KERNEL_VERSION}g
+              if $ENV{DIFFLOG_STRIP_KERNEL_VERSION};
+          s{\bCMAKE_HOST_SYSTEM_VERSION: "\K[^"]+(?=")}{KERNEL_VERSION}g
+              if $ENV{DIFFLOG_STRIP_KERNEL_VERSION};
+
           # GN completion timings: "-- GN Done. Made ... in 20890ms"
           s{^(-- GN Done\. Made .+ in )\d+ms\b}{$1Nms}gm
               if $ENV{DIFFLOG_STRIP_TIMES};
@@ -229,6 +241,7 @@ follow=1
 strip_timings=1
 strip_paths=1
 strip_jobs=1
+strip_kernel_version=1
 strip_progress=1
 strip_pids=1
 sort_lines=0
@@ -238,6 +251,7 @@ while (( $# )); do
         --no-follow) follow=0; shift ;;
         --keep-timings) strip_timings=0; shift ;;
         --keep-paths) strip_paths=0; shift ;;
+        --keep-kernel-version) strip_kernel_version=0; shift ;;
         --keep-jobs) strip_jobs=0; shift ;;
         --keep-progress) strip_progress=0; shift ;;
         --keep-pids) strip_pids=0; shift ;;
@@ -260,6 +274,7 @@ shift 2
 # Read by the perl filter in striplog; empty string = off.
 if (( strip_timings )); then export DIFFLOG_STRIP_TIMES=1; else unset DIFFLOG_STRIP_TIMES; fi
 if (( strip_paths )); then export DIFFLOG_STRIP_PATHS=1; else unset DIFFLOG_STRIP_PATHS; fi
+if (( strip_kernel_version )); then export DIFFLOG_STRIP_KERNEL_VERSION=1; else unset DIFFLOG_STRIP_KERNEL_VERSION; fi
 if (( strip_jobs )); then export DIFFLOG_STRIP_JOBS=1; else unset DIFFLOG_STRIP_JOBS; fi
 if (( strip_progress )); then export DIFFLOG_STRIP_PROGRESS=1; else unset DIFFLOG_STRIP_PROGRESS; fi
 if (( strip_pids )); then export DIFFLOG_STRIP_PIDS=1; else unset DIFFLOG_STRIP_PIDS; fi
