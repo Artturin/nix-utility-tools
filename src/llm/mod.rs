@@ -8,29 +8,32 @@
 mod openai;
 mod stream;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 pub use openai::OpenAiClient;
 
 use crate::cli::LlmEndpoint;
 
 /// Sampling settings sent with every request.
-///
-/// Note: `top_k` is not part of the OpenAI spec. llama.cpp honours it;
-/// ollama's OpenAI endpoint does not document it and likely ignores it.
 #[derive(Debug, Clone, Copy)]
 pub struct Sampling {
     pub temperature: f32,
     pub top_p: f32,
-    pub top_k: u32,
+    /// Not part of the OpenAI spec. llama.cpp honours it; ollama's OpenAI
+    /// endpoint doesn't document it and likely ignores it; strict servers
+    /// such as Gemini's reject it, so it's `None` for `--endpoint openai`.
+    pub top_k: Option<u32>,
 }
 
-impl Default for Sampling {
-    fn default() -> Self {
+impl Sampling {
+    pub fn for_endpoint(endpoint: LlmEndpoint) -> Self {
         Self {
             temperature: 0.0,
             top_p: 0.5,
-            top_k: 10,
+            top_k: match endpoint {
+                LlmEndpoint::Ollama | LlmEndpoint::LlamaCpp => Some(10),
+                LlmEndpoint::Openai => None,
+            },
         }
     }
 }
@@ -117,13 +120,17 @@ pub fn connect(
     api_key: Option<&str>,
 ) -> Result<OpenAiClient> {
     let (label, port, env_host) = match endpoint {
-        LlmEndpoint::Ollama => ("ollama", 11434, std::env::var("OLLAMA_HOST").ok()),
-        LlmEndpoint::LlamaCpp => ("llama.cpp", 8080, None),
+        LlmEndpoint::Ollama => ("ollama", Some(11434), std::env::var("OLLAMA_HOST").ok()),
+        LlmEndpoint::LlamaCpp => ("llama.cpp", Some(8080), None),
+        LlmEndpoint::Openai => ("OpenAI-compatible server", None, None),
     };
-    let raw = host
-        .map(str::to_owned)
-        .or(env_host)
-        .unwrap_or_else(|| format!("127.0.0.1:{port}"));
+    let raw = match (host.map(str::to_owned).or(env_host), port) {
+        (Some(raw), _) => raw,
+        (None, Some(port)) => format!("127.0.0.1:{port}"),
+        (None, None) => bail!(
+            "--endpoint openai has no default address; pass --host or set NIX_LOG_DIFF_ANALYZER_LLM_HOST"
+        ),
+    };
     OpenAiClient::new(label, &raw, port, api_key)
 }
 

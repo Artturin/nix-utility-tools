@@ -39,7 +39,8 @@ pub fn run(cli: &Cli) -> Result<Outcome> {
         client.name(),
         if cli.quiet { "silently in background" } else { "streaming live" }
     );
-    let generation = generate(&client, &model, &prompt::build(&diff), &limits, cli.quiet)?;
+    let sampling = Sampling::for_endpoint(cli.endpoint);
+    let generation = generate(&client, &model, &prompt::build(&diff), &sampling, &limits, cli.quiet)?;
     Ok(report(&generation))
 }
 
@@ -48,6 +49,7 @@ fn generate(
     client: &OpenAiClient,
     model: &str,
     prompt: &str,
+    sampling: &Sampling,
     limits: &Limits,
     quiet: bool,
 ) -> Result<Generation> {
@@ -58,7 +60,7 @@ fn generate(
                 thinking.handle(event);
             }
         };
-        client.generate(model, prompt, &Sampling::default(), limits, &mut on_event)
+        client.generate(model, prompt, sampling, limits, &mut on_event)
     };
     thinking.finish(); // reset colour even when generation failed
     result

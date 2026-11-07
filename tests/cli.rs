@@ -314,10 +314,10 @@ fn host_with_a_v1_suffix_works() {
 #[test]
 fn endpoint_selects_the_default_address() {
     let ollama = run(&["--dry-run", "--model", "m"], DIFF);
-    assert!(ollama.stderr.contains("ollama at http://127.0.0.1:11434/"), "{}", ollama.stderr);
+    assert!(ollama.stderr.contains("ollama at http://127.0.0.1:11434/v1/"), "{}", ollama.stderr);
 
     let llama = run(&["--dry-run", "--model", "m", "--endpoint", "llama-cpp"], DIFF);
-    assert!(llama.stderr.contains("llama.cpp at http://127.0.0.1:8080/"), "{}", llama.stderr);
+    assert!(llama.stderr.contains("llama.cpp at http://127.0.0.1:8080/v1/"), "{}", llama.stderr);
 
     let from_env = run_with_env(
         &["--dry-run", "--model", "m"],
@@ -332,10 +332,98 @@ fn ollama_host_variable_is_honoured_for_ollama_only() {
     let env = [("OLLAMA_HOST", "somehost")];
 
     let ollama = run_with_env(&["--dry-run", "--model", "m"], &env, DIFF);
-    assert!(ollama.stderr.contains("http://somehost:11434/"), "{}", ollama.stderr);
+    assert!(ollama.stderr.contains("http://somehost:11434/v1/"), "{}", ollama.stderr);
 
     let llama = run_with_env(&["--dry-run", "--model", "m", "--endpoint", "llama-cpp"], &env, DIFF);
-    assert!(llama.stderr.contains("http://127.0.0.1:8080/"), "{}", llama.stderr);
+    assert!(llama.stderr.contains("http://127.0.0.1:8080/v1/"), "{}", llama.stderr);
+}
+
+// ---- generic OpenAI-compatible servers (Gemini, OpenAI, ...) ----
+
+/// Matches a chat request whose JSON body has no `top_k` field.
+fn without_top_k(request: &mockito::Request) -> bool {
+    let body: Value = serde_json::from_slice(request.body().unwrap()).unwrap();
+    body.get("top_k").is_none()
+}
+
+#[test]
+fn the_openai_endpoint_does_not_send_top_k() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .match_request(without_top_k)
+        .match_body(Matcher::PartialJson(json!({ "temperature": 0.0, "top_p": 0.5 })))
+        .with_status(200)
+        .with_body(sse(&[delta(json!({ "content": "False" }))]))
+        .create();
+
+    let result = analyze(&server, &["--endpoint", "openai"]);
+
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    mock.assert();
+}
+
+#[test]
+fn a_host_with_a_path_is_used_as_the_complete_api_base() {
+    // Gemini's layout: no /v1 segment before /chat/completions.
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/v1beta/openai/chat/completions")
+        .match_request(without_top_k)
+        .with_status(200)
+        .with_body(sse(&[delta(json!({ "content": "False" }))]))
+        .create();
+    let host = format!("{}/v1beta/openai/", server.url());
+
+    let result = run(&["--endpoint", "openai", "--host", &host, "--model", "m"], DIFF);
+
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    mock.assert();
+}
+
+#[test]
+fn models_are_listed_from_a_path_prefixed_base_and_models_prefix_is_dropped() {
+    let mut server = Server::new();
+    server
+        .mock("GET", "/v1beta/openai/models")
+        .with_status(200)
+        .with_body(json!({ "data": [{ "id": "models/gemini-flash" }] }).to_string())
+        .create();
+    let mock = server
+        .mock("POST", "/v1beta/openai/chat/completions")
+        .match_body(Matcher::PartialJson(json!({ "model": "gemini-flash" })))
+        .with_status(200)
+        .with_body(sse(&[delta(json!({ "content": "False" }))]))
+        .create();
+    let host = format!("{}/v1beta/openai/", server.url());
+
+    let result = run(&["--endpoint", "openai", "--host", &host], DIFF);
+
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    mock.assert();
+}
+
+#[test]
+fn the_openai_endpoint_requires_a_host() {
+    let result = run(&["--endpoint", "openai", "--model", "m"], DIFF);
+
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("--host"), "{}", result.stderr);
+}
+
+#[test]
+fn a_server_rejecting_top_k_suggests_the_openai_endpoint() {
+    let mut server = Server::new();
+    server
+        .mock("POST", "/v1/chat/completions")
+        .with_status(400)
+        .with_body(r#"{"error":{"message":"Unknown name \"top_k\": Cannot find field."}}"#)
+        .create();
+
+    let result = analyze(&server, &[]);
+
+    assert_eq!(result.code, 1);
+    assert!(result.stderr.contains("--endpoint openai"), "{}", result.stderr);
 }
 
 // ---- model selection ----

@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 
-/// Which LLM server to talk to. Both speak the OpenAI-compatible API
-/// (`/v1/chat/completions`); the choice only sets the default address.
+/// Which LLM server to talk to. All of them speak the OpenAI-compatible API
+/// (`/chat/completions`); the choice sets the default address and whether
+/// non-standard sampling options are sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum LlmEndpoint {
     /// ollama (default address 127.0.0.1:11434)
@@ -13,6 +14,9 @@ pub enum LlmEndpoint {
     /// llama.cpp `llama-server` (default address 127.0.0.1:8080)
     #[value(name = "llama-cpp", alias = "llamacpp", alias = "llama.cpp")]
     LlamaCpp,
+    /// Any other OpenAI-compatible API, e.g. Gemini or OpenAI. Sends only
+    /// standard options (strict servers reject others) and needs --host.
+    Openai,
 }
 
 /// Ask a local LLM whether a diff of two sorted Nix build logs is
@@ -43,7 +47,10 @@ pub struct Cli {
     )]
     pub endpoint: LlmEndpoint,
 
-    /// Server address, e.g. http://127.0.0.1:11434
+    /// Server address: `host[:port]`, or an API base URL
+    ///
+    /// A bare host gets `/v1` appended; a URL with a path is used as given,
+    /// e.g. https://generativelanguage.googleapis.com/v1beta/openai/
     /// [default: $OLLAMA_HOST or 127.0.0.1:11434 for ollama, 127.0.0.1:8080 for llama-cpp]
     #[arg(long, env = "NIX_LOG_DIFF_ANALYZER_LLM_HOST")]
     pub host: Option<String>,
