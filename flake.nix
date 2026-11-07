@@ -86,6 +86,9 @@
       # One entry per workspace member under crates/. Adding a crate there and an
       # entry here is all that's needed to expose it as a package and in the overlay.
       crates = lib.mapAttrs (name: args: mkWorkspaceCrate (args // { inherit name; })) {
+        diffoscope-nix = {
+          description = "Run diffoscope on two Nix store paths, ignoring differences that are only due to differing store path hashes and GNU build IDs";
+        };
         nix-log-diff-analyzer = {
           description = "Ask an LLM (local or OpenAI-compatible remote) whether a diff of two sorted Nix build logs is noise or consequential";
           extraArgs = pkgs: {
@@ -94,6 +97,72 @@
           };
         };
       };
+
+      # diff-nixpkgs-attr and difflog with the tools they call (and diffoscope-nix
+      # and diffoscope) on their PATH. nix itself is left to the user's setup.
+      mkScripts =
+        pkgs: diffoscope-nix:
+        pkgs.callPackage (
+          {
+            lib,
+            stdenvNoCC,
+            makeWrapper,
+            coreutils,
+            diffoscope,
+            findutils,
+            gawk,
+            git,
+            gnused,
+            jq,
+            less,
+            perl,
+          }:
+          stdenvNoCC.mkDerivation {
+            pname = "diff-nixpkgs-attr";
+            version = workspaceVersion;
+            src = lib.fileset.toSource {
+              root = ./bin;
+              fileset = lib.fileset.unions [
+                ./bin/diff-nixpkgs-attr
+                ./bin/difflog
+              ];
+            };
+            nativeBuildInputs = [ makeWrapper ];
+            dontBuild = true;
+            # diff-nixpkgs-attr finds difflog next to itself
+            installPhase = ''
+              runHook preInstall
+              install -Dm755 -t $out/bin diff-nixpkgs-attr difflog
+              wrapProgram $out/bin/diff-nixpkgs-attr --prefix PATH : ${
+                lib.makeBinPath [
+                  coreutils
+                  diffoscope
+                  diffoscope-nix
+                  findutils
+                  gawk
+                  git
+                  gnused
+                  jq
+                  less
+                  perl
+                ]
+              }
+              wrapProgram $out/bin/difflog --prefix PATH : ${
+                lib.makeBinPath [
+                  coreutils
+                  git
+                  gnused
+                  perl
+                ]
+              }
+              runHook postInstall
+            '';
+            meta = {
+              description = "Compare nixpkgs attributes against a base revision with difflog and diffoscope-nix";
+              mainProgram = "diff-nixpkgs-attr";
+            };
+          }
+        ) { };
 
       # The crate that `nix build`/`nix run` use without an attribute
       defaultCrate = "nix-log-diff-analyzer";
@@ -133,6 +202,11 @@
       }
     )
     // {
-      overlays.default = final: prev: lib.mapAttrs (_: mkCrate: mkCrate prev) crates;
+      overlays.default =
+        final: prev:
+        lib.mapAttrs (_: mkCrate: mkCrate prev) crates
+        // {
+          diff-nixpkgs-attr = mkScripts prev final.diffoscope-nix;
+        };
     };
 }

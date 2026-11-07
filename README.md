@@ -1,13 +1,14 @@
 Here are tools which I use to review nixpkgs packages, mainly to diff package outputs and logs.
 
-## Scripts
+## Programs
 
 - `diff-nixpkgs-attr`: builds nixpkgs attributes at the current and base
   revisions, then compares changed outputs and build logs.
+  including `diffoscope-nix` and `diffoscope`
 - `difflog`: normalizes two Nix build logs before diffing them to hide common
   nondeterministic differences.
-- `diffoscope-nix`: runs diffoscope on two Nix store paths after masking
-  irrelevant embedded store hashes and build IDs.
+- `diffoscope-nix`: runs diffoscope on two Nix store
+  paths after masking irrelevant embedded store hashes and build IDs.
 - `nix-log-diff-analyzer` (experimental): uses an LLM (local ollama or
   llama.cpp, or an OpenAI-compatible remote such as Gemini) with the model named
   by `NIX_LOG_DIFF_ANALYZER_MODEL` to classify a build-log diff as
