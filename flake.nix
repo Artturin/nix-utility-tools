@@ -19,52 +19,84 @@
     }:
     let
       inherit (nixpkgs) lib;
-      analyzerLambda =
+
+      workspaceVersion = (lib.importTOML ./Cargo.toml).workspace.package.version;
+
+      # Builds the workspace member `name` from crates/${name}.
+      # Returns a function from pkgs to the package, so it can be used for both
+      # `packages` and the overlay.
+      #   description: meta.description
+      #   mainProgram: meta.mainProgram, defaults to name
+      #   extraArgs:   function from pkgs to extra attributes for naersk's
+      #                buildPackage (e.g. env vars or native build inputs the
+      #                crate needs)
+      mkWorkspaceCrate =
+        {
+          name,
+          description,
+          mainProgram ? name,
+          extraArgs ? _: { },
+        }:
         pkgs:
         pkgs.callPackage (
           {
             callPackage,
             rustPackages,
-            cacert,
           }:
           let
             naersk-lib = callPackage naersk { };
+            packageOption = "--package=${name}";
           in
-          naersk-lib.buildPackage {
-            name = "nix-log-diff-analyzer";
-            version = (lib.importTOML ./Cargo.toml).workspace.package.version;
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./Cargo.toml
-                ./Cargo.lock
-                ./crates
-              ];
-            };
+          naersk-lib.buildPackage (
+            {
+              inherit name;
+              version = workspaceVersion;
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions [
+                  ./Cargo.toml
+                  ./Cargo.lock
+                  ./crates
+                ];
+              };
 
-            # naersk only reads the name and version from a root package, not a workspace
-            cargoBuildOptions = opts: opts ++ [ "--package=nix-log-diff-analyzer" ];
-            cargoTestOptions = opts: opts ++ [ "--package=nix-log-diff-analyzer" ];
+              # naersk only reads the name and version from a root package, not a workspace
+              cargoBuildOptions = opts: opts ++ [ packageOption ];
+              cargoTestOptions = opts: opts ++ [ packageOption ];
 
-            checkInputs = [ rustPackages.clippy ];
-            # reqwest loads system CA certificates even for plain http clients
-            SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-            doCheck = true;
-            cargoTestCommands =
-              x:
-              x
-              ++ [
-                ''
-                  cargo clippy --all --all-features --tests -- \
-                                  -D warnings''
-              ];
+              checkInputs = [ rustPackages.clippy ];
+              doCheck = true;
+              cargoTestCommands =
+                x:
+                x
+                ++ [
+                  ''
+                    cargo clippy ${packageOption} --all-features --tests -- \
+                                    -D warnings''
+                ];
 
-            meta = {
-              description = "Ask an LLM (local or OpenAI-compatible remote) whether a diff of two sorted Nix build logs is noise or consequential";
-              mainProgram = "nix-log-diff-analyzer";
-            };
-          }
+              meta = {
+                inherit description mainProgram;
+              };
+            }
+            // extraArgs pkgs
+          )
         ) { };
+
+      # One entry per workspace member under crates/. Adding a crate there and an
+      # entry here is all that's needed to expose it as a package and in the overlay.
+      crates = lib.mapAttrs (name: args: mkWorkspaceCrate (args // { inherit name; })) {
+        nix-log-diff-analyzer = {
+          description = "Ask an LLM (local or OpenAI-compatible remote) whether a diff of two sorted Nix build logs is noise or consequential";
+          extraArgs = pkgs: {
+            # reqwest loads system CA certificates even for plain http clients
+            SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+          };
+        };
+      };
+
+      # The crate that `nix build`/`nix run` use without an attribute
+      defaultCrate = "nix-log-diff-analyzer";
     in
     utils.lib.eachDefaultSystem (
       system:
@@ -73,9 +105,9 @@
       in
       {
         packages = {
-          default = self.packages.${system}.nix-log-diff-analyzer;
-          nix-log-diff-analyzer = analyzerLambda pkgs;
-        };
+          default = self.packages.${system}.${defaultCrate};
+        }
+        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates;
 
         apps.default = utils.lib.mkApp {
           drv = self.packages.${system}.default;
@@ -98,10 +130,6 @@
       }
     )
     // {
-      overlays.default = (
-        final: prev: {
-          nix-log-diff-analyzer = analyzerLambda prev;
-        }
-      );
+      overlays.default = final: prev: lib.mapAttrs (_: mkCrate: mkCrate prev) crates;
     };
 }
