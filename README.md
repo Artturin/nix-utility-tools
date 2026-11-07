@@ -1,7 +1,5 @@
 Here are tools which I use to review nixpkgs packages, mainly to diff package outputs and logs.
 
-Use tools in `bin/` with `PATH=$PWD/bin` because they depend on each other.
-
 ## Scripts
 
 - `diff-nixpkgs-attr`: builds nixpkgs attributes at the current and base

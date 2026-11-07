@@ -14,6 +14,10 @@ if [[ -z "${SYSTEMD_EXEC_PID:-}" ]]; then
 fi
 # --- end safe-run guard ------------------------------------------------------
 
+# difflog and diffoscope-nix live next to this script
+script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+PATH="$script_dir${PATH:+:$PATH}"
+
 # --- colours -----------------------------------------------------------------
 COLOR_ON=(0 0 0) # indexed by fd: 1 = stdout, 2 = stderr
 
