@@ -55,6 +55,8 @@ Normalization includes:
    (disable with --keep-dbus)
  * replacing CMake step timings ("-- Configuring done (14.6s)") with
    "(Ns)" (disable with --keep-cmake-times)
+ * replacing GN completion timings ("-- GN Done. Made ... in 20890ms")
+   with "Nms"
  * replacing build IDs, both "build id 36ad3d..." / "(build ID 36ad3d...)"
    in the fixup phase output and in ".build-id/36/ad3d...." file names,
    with constants
@@ -140,6 +142,9 @@ striplog() {
 
           # CMake step timings: "-- Configuring done (14.6s)"
           s{\bdone \(\K\d+(?:\.\d+)?(?=s\))}{N}g if $ENV{DIFFLOG_STRIP_CMAKE_TIMES};
+
+          # GN completion timings: "-- GN Done. Made ... in 20890ms"
+          s{^(-- GN Done\. Made .+ in )\d+ms\b}{$1Nms}gm;
 
           # Build IDs as printed by the fixup phase:
           # "separating debug info from /nix/store/...-foo/bin/x (build ID 36ad3d2c...)"
