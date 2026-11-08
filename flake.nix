@@ -90,6 +90,11 @@
           description = "Compare two Nix build logs, normalizing out boring differences";
           extraArgs = pkgs: {
             nativeBuildInputs = [ pkgs.makeWrapper ];
+            # the integration tests run git diff --no-index
+            checkInputs = [
+              pkgs.rustPackages.clippy
+              pkgs.git
+            ];
             # difflog runs git diff --no-index; nix itself is left to the user's setup
             postInstall = ''
               wrapProgram $out/bin/difflog --prefix PATH : ${lib.makeBinPath [ pkgs.git ]}

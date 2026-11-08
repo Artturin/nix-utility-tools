@@ -68,7 +68,10 @@ fn resolve(arg: &str, follow: bool) -> Result<String> {
 /// its hash, made safe for use as a file name.
 fn label(arg: &str) -> String {
     let path = fs::canonicalize(arg).unwrap_or_else(|_| PathBuf::from(arg));
-    let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let base = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let base = STORE_HASH_PREFIX.replace(&base, "");
     UNSAFE_FILENAME_CHARS.replace_all(&base, "_").into_owned()
 }
@@ -174,5 +177,101 @@ fn main() -> ExitCode {
             error!("{err:#}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cli(args: &[&str]) -> Cli {
+        Cli::try_parse_from(std::iter::once("difflog").chain(args.iter().copied())).unwrap()
+    }
+
+    #[test]
+    fn store_hash_prefix_matches_only_valid_hashes() {
+        let hash = "abcdfghijklmnpqrsvwxyz0123456789";
+        assert!(STORE_HASH_PREFIX.is_match(&format!("{hash}-foo")));
+        // e, o, t and u are not in the nix base32 alphabet
+        assert!(!STORE_HASH_PREFIX.is_match("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-foo"));
+        assert!(!STORE_HASH_PREFIX.is_match("abc-foo"));
+    }
+
+    #[test]
+    fn label_strips_hash_and_sanitizes() {
+        let hash = "abcdfghijklmnpqrsvwxyz0123456789";
+        assert_eq!(
+            label(&format!("/nix/store/{hash}-hello-2.12.drv")),
+            "hello-2.12.drv"
+        );
+        assert_eq!(label("/nonexistent/weird name:1"), "weird_name_1");
+        assert_eq!(label("nixpkgs#hello"), "nixpkgs_hello");
+        assert_eq!(label("/"), "");
+    }
+
+    #[test]
+    fn resolve_leaves_non_symlinks_alone() {
+        assert_eq!(resolve("nixpkgs#hello", true).unwrap(), "nixpkgs#hello");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f");
+        fs::write(&file, "").unwrap();
+        let file = file.to_str().unwrap();
+        assert_eq!(resolve(file, true).unwrap(), file);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_follows_symlink_chains() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = fs::canonicalize(dir.path()).unwrap().join("real");
+        fs::write(&real, "").unwrap();
+        let l1 = dir.path().join("l1");
+        let l2 = dir.path().join("l2");
+        std::os::unix::fs::symlink(&real, &l1).unwrap();
+        std::os::unix::fs::symlink(&l1, &l2).unwrap();
+        let l2 = l2.to_str().unwrap();
+        assert_eq!(resolve(l2, true).unwrap(), real.to_str().unwrap());
+        assert_eq!(resolve(l2, false).unwrap(), l2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_errors_on_dangling_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &link).unwrap();
+        let err = resolve(link.to_str().unwrap(), true).unwrap_err();
+        assert!(err.to_string().contains("cannot resolve symlink"));
+    }
+
+    #[test]
+    fn git_diff_args_order() {
+        let c = cli(&["x", "y", "-U0", "--word-diff"]);
+        assert_eq!(
+            git_diff_args(&c, "x.log", "y.log"),
+            [
+                "diff",
+                "--no-index",
+                "--no-prefix",
+                "-U0",
+                "--word-diff",
+                "a/x.log",
+                "b/y.log"
+            ]
+        );
+    }
+
+    #[test]
+    fn cli_parsing() {
+        let c = cli(&["x", "y"]);
+        assert_eq!((c.first.as_str(), c.second.as_str()), ("x", "y"));
+        assert!(c.git_args.is_empty());
+        assert!(!c.no_follow && !c.sort_lines && !c.dry_run);
+
+        let c = cli(&["--sort-lines", "-n", "x", "y", "--stat", "-U3"]);
+        assert!(c.sort_lines && c.dry_run);
+        assert_eq!(c.git_args, ["--stat", "-U3"]);
+
+        assert!(Cli::try_parse_from(["difflog", "only-one"]).is_err());
     }
 }
