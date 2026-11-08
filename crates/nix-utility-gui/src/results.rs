@@ -134,6 +134,11 @@ impl Package {
         self.outputs.iter().any(|o| o.status == Status::Different)
     }
 
+    /// Compared, and nothing differs and nothing went wrong.
+    pub fn unchanged(&self) -> bool {
+        !self.outputs.is_empty() && self.outputs.iter().all(|o| o.status == Status::Same)
+    }
+
     pub fn running(&self) -> bool {
         self.outputs.iter().any(|o| o.status == Status::Running)
     }
@@ -366,6 +371,24 @@ mod tests {
             files,
             [Some("/out/differences-a/a/difflog".into()), None, None]
         );
+    }
+
+    #[test]
+    fn unchanged_needs_every_output_to_be_the_same() {
+        let mut results = Results::default();
+        results.apply(&started("a"));
+        assert!(!results.packages[0].unchanged(), "nothing compared yet");
+        results.apply(&tool_started(Tool::Difflog, None));
+        assert!(!results.packages[0].unchanged(), "still running");
+        results.apply(&finished(Tool::Difflog, None, ToolStatus::Same));
+        assert!(results.packages[0].unchanged());
+        results.apply(&tool_started(Tool::Diffoscope, Some("out")));
+        results.apply(&finished(
+            Tool::Diffoscope,
+            Some("out"),
+            ToolStatus::Failed(None),
+        ));
+        assert!(!results.packages[0].unchanged());
     }
 
     #[test]

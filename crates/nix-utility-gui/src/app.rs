@@ -39,6 +39,7 @@ pub struct App {
     log: RefCell<Vec<Line>>,
     clear_log: Cell<bool>,
     list_dirty: Cell<bool>,
+    expand_same: Cell<bool>,
     pane_dirty: Cell<bool>,
     show_results: Cell<bool>,
     toast: RefCell<Option<String>>,
@@ -57,6 +58,11 @@ pub struct Widgets {
     log_buffer: gtk::TextBuffer,
     log_view: gtk::TextView,
     list: gtk::ListBox,
+    same_list: gtk::ListBox,
+    same_expander: gtk::Expander,
+    // Package index of each row, per list.
+    list_rows: Rc<RefCell<Vec<usize>>>,
+    same_rows: Rc<RefCell<Vec<usize>>>,
     content: adw::ViewStack,
     notebook: gtk::Notebook,
     rendered: Option<usize>,
@@ -89,6 +95,11 @@ impl App {
             } else {
                 Some(0)
             });
+        if let Some(package) = self.selected.and_then(|i| results.packages.get(i))
+            && package.unchanged()
+        {
+            self.expand_same.set(true);
+        }
         self.list_dirty.set(true);
         self.pane_dirty.set(true);
     }
@@ -173,7 +184,19 @@ impl SimpleComponent for App {
         let list = gtk::ListBox::builder()
             .css_classes(["navigation-sidebar"])
             .build();
-        let list_scroller = gtk::ScrolledWindow::builder().child(&list).build();
+        let same_list = gtk::ListBox::builder()
+            .css_classes(["navigation-sidebar"])
+            .build();
+        let same_expander = gtk::Expander::builder()
+            .child(&same_list)
+            .visible(false)
+            .margin_start(6)
+            .margin_end(6)
+            .build();
+        let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        sidebar.append(&list);
+        sidebar.append(&same_expander);
+        let list_scroller = gtk::ScrolledWindow::builder().child(&sidebar).build();
         let notebook = gtk::Notebook::builder()
             .scrollable(true)
             .show_border(false)
@@ -253,10 +276,19 @@ impl SimpleComponent for App {
                 });
             });
         }
-        {
-            let sender = sender.clone();
-            list.connect_row_activated(move |_, row| {
-                sender.input(Msg::Select(row.index().max(0) as usize));
+        let list_rows = Rc::new(RefCell::new(Vec::<usize>::new()));
+        let same_rows = Rc::new(RefCell::new(Vec::<usize>::new()));
+        for (this, other, rows) in [
+            (&list, &same_list, &list_rows),
+            (&same_list, &list, &same_rows),
+        ] {
+            let (sender, other, rows) = (sender.clone(), other.clone(), Rc::clone(rows));
+            this.connect_row_activated(move |_, row| {
+                other.unselect_all();
+                let index = usize::try_from(row.index()).ok();
+                if let Some(package) = index.and_then(|i| rows.borrow().get(i).copied()) {
+                    sender.input(Msg::Select(package));
+                }
             });
         }
         {
@@ -299,6 +331,7 @@ impl SimpleComponent for App {
             log: RefCell::new(Vec::new()),
             clear_log: Cell::new(false),
             list_dirty: Cell::new(false),
+            expand_same: Cell::new(false),
             pane_dirty: Cell::new(false),
             show_results: Cell::new(false),
             toast: RefCell::new(None),
@@ -316,6 +349,10 @@ impl SimpleComponent for App {
             log_buffer,
             log_view,
             list,
+            same_list,
+            same_expander,
+            list_rows,
+            same_rows,
             content,
             notebook,
             rendered: None,
@@ -480,16 +517,40 @@ impl SimpleComponent for App {
         }
 
         if self.list_dirty.take() {
-            while let Some(child) = widgets.list.first_child() {
-                widgets.list.remove(&child);
+            for list in [&widgets.list, &widgets.same_list] {
+                while let Some(child) = list.first_child() {
+                    list.remove(&child);
+                }
             }
-            for package in &self.results.borrow().packages {
-                widgets.list.append(&panes::package_row(package));
+            let (mut shown, mut same) = (Vec::new(), Vec::new());
+            for (index, package) in self.results.borrow().packages.iter().enumerate() {
+                let (list, rows) = if package.unchanged() {
+                    (&widgets.same_list, &mut same)
+                } else {
+                    (&widgets.list, &mut shown)
+                };
+                list.append(&panes::package_row(package));
+                rows.push(index);
             }
-            let row = self
-                .selected
-                .and_then(|i| widgets.list.row_at_index(i as i32));
-            widgets.list.select_row(row.as_ref());
+            let position = |rows: &[usize]| rows.iter().position(|&i| Some(i) == self.selected);
+            widgets.same_list.unselect_all();
+            widgets.list.unselect_all();
+            if let Some(row) = position(&shown).and_then(|i| widgets.list.row_at_index(i as i32)) {
+                widgets.list.select_row(Some(&row));
+            } else if let Some(row) =
+                position(&same).and_then(|i| widgets.same_list.row_at_index(i as i32))
+            {
+                widgets.same_list.select_row(Some(&row));
+            }
+            widgets.same_expander.set_visible(!same.is_empty());
+            widgets
+                .same_expander
+                .set_label(Some(&format!("No differences ({})", same.len())));
+            if self.expand_same.take() {
+                widgets.same_expander.set_expanded(true);
+            }
+            *widgets.list_rows.borrow_mut() = shown;
+            *widgets.same_rows.borrow_mut() = same;
         }
 
         if self.pane_dirty.take() {
