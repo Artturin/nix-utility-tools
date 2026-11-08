@@ -3,18 +3,30 @@
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use diff_nixpkgs_attr_core::tools::Preflight;
-use diff_nixpkgs_attr_core::{CancelToken, Event, Flow, Report, Status as RunStatus, run_pipeline};
+use diff_nixpkgs_attr_core::{
+    CancelToken, Event, Flow, Report, Status as RunStatus, Tool, ToolStatus, analysis_path,
+    run_pipeline,
+};
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::prelude::*;
 
 use crate::activity::{Activity, Kind, Line, describe};
+use crate::analysis::{
+    self, AnalysisResult, AnalyzerSettings, AutoTiming, SizeCheck, Skipped, State, Trigger,
+};
+use crate::analysis_view::{self, AnalysisPane};
 use crate::form::{Form, choose_folder};
+use crate::keystore::{FallbackKeyStore, KeyStore};
 use crate::panes;
+use crate::prefs;
+use crate::queue::{Item, Queue};
 use crate::results::Results;
+use crate::runner::{self, Job, Outcome, Update};
 use crate::settings::Settings;
 
 #[derive(Debug)]
@@ -26,9 +38,20 @@ pub enum Msg {
     Load(PathBuf),
     Select(usize),
     ThemeChanged,
+    Analyze(usize),
+    AnalyzeAnyway(usize),
+    CancelAnalysis(usize),
+    /// An update from the analysis started in generation `.0` for `.1`.
+    Analysis(u64, String, Update),
+    OpenPrefs,
+    SetAnalyzer(AnalyzerSettings),
+    SortByVerdict,
 }
 
 pub struct App {
+    form: Form,
+    keys: Arc<dyn KeyStore>,
+    queue: Queue,
     missing: Vec<&'static str>,
     token: Rc<RefCell<Option<CancelToken>>>,
     quit_when_finished: Rc<Cell<bool>>,
@@ -41,6 +64,8 @@ pub struct App {
     list_dirty: Cell<bool>,
     expand_same: Cell<bool>,
     pane_dirty: Cell<bool>,
+    analysis_dirty: Cell<bool>,
+    open_prefs: Cell<bool>,
     show_results: Cell<bool>,
     toast: RefCell<Option<String>>,
 }
@@ -66,6 +91,10 @@ pub struct Widgets {
     content: adw::ViewStack,
     notebook: gtk::Notebook,
     rendered: Option<usize>,
+    /// The Analysis tab of the shown package and the size of its diff.
+    analysis: Option<(AnalysisPane, usize)>,
+    queue_label: gtk::Label,
+    sort_button: gtk::Button,
 }
 
 impl App {
@@ -102,6 +131,199 @@ impl App {
         }
         self.list_dirty.set(true);
         self.pane_dirty.set(true);
+    }
+
+    fn analyzer(&self) -> AnalyzerSettings {
+        self.form.analyzer()
+    }
+
+    fn set_analysis(&self, index: usize, state: State) {
+        if let Some(package) = self.results.borrow_mut().packages.get_mut(index) {
+            package.analysis = state;
+        }
+        self.list_dirty.set(true);
+        self.analysis_dirty.set(true);
+    }
+
+    /// The diff of package `index` to send, or the state that says why not.
+    fn prepare(
+        &self,
+        index: usize,
+        bypass: bool,
+        settings: &AnalyzerSettings,
+    ) -> Result<String, State> {
+        let diff = self
+            .results
+            .borrow_mut()
+            .diff_text(index)
+            .ok_or(State::Idle)?;
+        if !bypass {
+            match settings.check_size(diff.bytes) {
+                SizeCheck::Fits => {}
+                SizeCheck::TooLarge { bytes, limit } => {
+                    return Err(State::TooLarge { bytes, limit });
+                }
+                SizeCheck::ContextTooSmall => return Err(State::ContextTooSmall),
+            }
+        }
+        Ok(diff.text)
+    }
+
+    /// Queue an analysis of package `index`. A manual request without a
+    /// configured model opens the preferences; an automatic one is skipped.
+    fn request(
+        &mut self,
+        index: usize,
+        trigger: Trigger,
+        bypass: bool,
+        sender: &ComponentSender<Self>,
+    ) {
+        let settings = self.analyzer();
+        let Some(attr) = self
+            .results
+            .borrow()
+            .packages
+            .get(index)
+            .map(|p| p.attr.clone())
+        else {
+            return;
+        };
+        if self.queue.has(&attr) {
+            return;
+        }
+        if !settings.configured() {
+            if trigger == Trigger::Manual {
+                self.open_prefs.set(true);
+                self.toast("Choose a model to analyze with first");
+            }
+            return;
+        }
+        if let Err(state) = self.prepare(index, bypass, &settings) {
+            self.set_analysis(index, state);
+            return;
+        }
+        if trigger == Trigger::Auto {
+            if !self.queue.take_auto_slot(settings.auto_cap) {
+                self.set_analysis(index, State::Skipped(Skipped::CapReached));
+                return;
+            }
+            self.queue.sort_when_idle = true;
+        }
+        self.set_analysis(index, State::Queued);
+        self.queue.push(Item {
+            attr,
+            trigger,
+            bypass,
+        });
+        self.start_next(sender);
+    }
+
+    fn start_next(&mut self, sender: &ComponentSender<Self>) {
+        if self.queue.running() {
+            return;
+        }
+        let settings = self.analyzer();
+        while let Some(item) = self.queue.pop() {
+            let Some(index) = self.results.borrow().index_of(&item.attr) else {
+                self.queue.dropped();
+                continue;
+            };
+            let diff = match self.prepare(index, item.bypass, &settings) {
+                Ok(diff) => diff,
+                Err(state) => {
+                    self.set_analysis(index, state);
+                    self.queue.dropped();
+                    continue;
+                }
+            };
+            let token = CancelToken::new();
+            self.queue.begin(&item.attr, token.clone());
+            self.set_analysis(
+                index,
+                State::Running {
+                    thinking: String::new(),
+                    answer: String::new(),
+                },
+            );
+            let tx = sender.input_sender().clone();
+            let (generation, attr) = (self.queue.generation(), item.attr.clone());
+            let job = Job {
+                diff,
+                trigger: item.trigger,
+            };
+            runner::spawn(
+                settings,
+                Arc::clone(&self.keys),
+                job,
+                token,
+                move |update| {
+                    tx.emit(Msg::Analysis(generation, attr.clone(), update));
+                },
+            );
+            return;
+        }
+        self.queue_idle();
+    }
+
+    /// Put consequential packages first once an automatic queue is done, but
+    /// not while the run is still adding rows.
+    fn queue_idle(&mut self) {
+        if self.queue.active() || self.running() || !self.queue.sort_when_idle {
+            return;
+        }
+        self.queue.sort_when_idle = false;
+        self.results.borrow_mut().sort_by_verdict();
+        self.list_dirty.set(true);
+    }
+
+    /// Stop what is running and forget what is waiting.
+    fn cancel_analyses(&mut self) {
+        for attr in self.queue.cancel_all() {
+            let index = self.results.borrow().index_of(&attr);
+            if let Some(index) = index {
+                self.set_analysis(index, State::Idle);
+            }
+        }
+    }
+
+    fn save_analysis(&self, attr: &str, result: &AnalysisResult) {
+        let Some(dir) = self.results.borrow().saved_dir.clone() else {
+            return;
+        };
+        let path = analysis_path(&dir, attr);
+        if let Err(err) = analysis::save(&path, result, self.analyzer().save_host) {
+            self.toast(format!("Cannot save the analysis of {attr}: {err}"));
+        }
+    }
+
+    /// Write the analyses that finished before the results had a directory.
+    fn save_pending(&self) {
+        let Some(dir) = self.results.borrow().saved_dir.clone() else {
+            return;
+        };
+        for package in &self.results.borrow().packages {
+            if let State::Done(result) = &package.analysis
+                && !analysis_path(&dir, &package.attr).exists()
+            {
+                self.save_analysis(&package.attr, result);
+            }
+        }
+    }
+
+    /// Queue every package with differences, for automatic analysis.
+    fn request_all(&mut self, sender: &ComponentSender<Self>) {
+        let indices: Vec<usize> = {
+            let results = self.results.borrow();
+            results
+                .order
+                .iter()
+                .copied()
+                .filter(|&i| results.packages[i].has_differences())
+                .collect()
+        };
+        for index in indices {
+            self.request(index, Trigger::Auto, false, sender);
+        }
     }
 }
 
@@ -194,6 +416,24 @@ impl SimpleComponent for App {
             .margin_end(6)
             .build();
         let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let queue_label = gtk::Label::builder()
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["dim-label", "caption"])
+            .build();
+        let sort_button = gtk::Button::builder()
+            .label("Sort by verdict")
+            .tooltip_text("Show packages with consequential differences first")
+            .css_classes(["flat", "caption"])
+            .build();
+        let sidebar_bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        sidebar_bar.set_margin_start(12);
+        sidebar_bar.set_margin_end(6);
+        sidebar_bar.set_margin_top(6);
+        sidebar_bar.append(&queue_label);
+        sidebar_bar.append(&sort_button);
+        sidebar.append(&sidebar_bar);
         sidebar.append(&list);
         sidebar.append(&same_expander);
         let list_scroller = gtk::ScrolledWindow::builder().child(&sidebar).build();
@@ -234,6 +474,10 @@ impl SimpleComponent for App {
             .icon_name("document-open-symbolic")
             .tooltip_text("Open a saved differences directory")
             .build();
+        let prefs_button = gtk::Button::builder()
+            .icon_name("preferences-system-symbolic")
+            .tooltip_text("Analysis preferences")
+            .build();
         let header = adw::HeaderBar::new();
         header.set_title_widget(Some(
             &adw::ViewSwitcher::builder()
@@ -243,6 +487,7 @@ impl SimpleComponent for App {
         ));
         header.pack_start(&run_button);
         header.pack_start(&cancel_button);
+        header.pack_end(&prefs_button);
         header.pack_end(&open_button);
 
         let banner = adw::Banner::new("");
@@ -266,6 +511,14 @@ impl SimpleComponent for App {
         {
             let sender = sender.clone();
             cancel_button.connect_clicked(move |_| sender.input(Msg::Cancel));
+        }
+        {
+            let sender = sender.clone();
+            prefs_button.connect_clicked(move |_| sender.input(Msg::OpenPrefs));
+        }
+        {
+            let sender = sender.clone();
+            sort_button.connect_clicked(move |_| sender.input(Msg::SortByVerdict));
         }
         {
             let (window, sender) = (window.clone(), sender.clone());
@@ -297,17 +550,22 @@ impl SimpleComponent for App {
                 sender.input(Msg::ThemeChanged);
             });
         }
+        let queue = Queue::default();
         {
             // A run in progress is cancelled first so that no child outlives
             // the window; the window closes when the run has wound down.
-            let (token, quit, form) = (
+            let (token, analysis_token, quit, form) = (
                 Rc::clone(&token),
+                queue.token(),
                 Rc::clone(&quit_when_finished),
                 form.clone(),
             );
             window.connect_close_request(move |window| {
                 if let Err(err) = form.read().save() {
                     log::warn!("could not save the settings: {err}");
+                }
+                if let Some(token) = analysis_token.borrow().as_ref() {
+                    token.cancel();
                 }
                 match token.borrow().as_ref() {
                     Some(token) => {
@@ -322,6 +580,9 @@ impl SimpleComponent for App {
         }
 
         let model = App {
+            form,
+            keys: Arc::new(FallbackKeyStore::system()),
+            queue,
             missing,
             token,
             quit_when_finished,
@@ -333,6 +594,8 @@ impl SimpleComponent for App {
             list_dirty: Cell::new(false),
             expand_same: Cell::new(false),
             pane_dirty: Cell::new(false),
+            analysis_dirty: Cell::new(false),
+            open_prefs: Cell::new(false),
             show_results: Cell::new(false),
             toast: RefCell::new(None),
         };
@@ -356,6 +619,9 @@ impl SimpleComponent for App {
             content,
             notebook,
             rendered: None,
+            analysis: None,
+            queue_label,
+            sort_button,
         };
         ComponentParts { model, widgets }
     }
@@ -377,6 +643,7 @@ impl SimpleComponent for App {
                 let token = CancelToken::new();
                 let ctl = settings.control(token.clone());
                 *self.token.borrow_mut() = Some(token);
+                self.queue.reset();
                 *self.results.borrow_mut() = Results::default();
                 self.activity = Activity::default();
                 self.selected = None;
@@ -398,6 +665,7 @@ impl SimpleComponent for App {
                     token.cancel();
                     self.activity.status = "Cancelling…".to_owned();
                 }
+                self.cancel_analyses();
             }
             Msg::Event(event) => {
                 self.activity.apply(&event);
@@ -418,6 +686,25 @@ impl SimpleComponent for App {
                     {
                         self.pane_dirty.set(true);
                     }
+                }
+                match &event {
+                    Event::Saved(_) => self.save_pending(),
+                    Event::ToolFinished {
+                        attr,
+                        tool: Tool::Difflog,
+                        status: ToolStatus::Different,
+                        ..
+                    } => {
+                        let analyzer = self.analyzer();
+                        let index = self.results.borrow().index_of(attr);
+                        if let Some(index) = index
+                            && analyzer.auto_analyze
+                            && analyzer.auto_timing == AutoTiming::DuringRun
+                        {
+                            self.request(index, Trigger::Auto, false, &sender);
+                        }
+                    }
+                    _ => {}
                 }
             }
             Msg::Finished(result) => {
@@ -445,6 +732,15 @@ impl SimpleComponent for App {
                             self.select_first();
                             self.show_results.set(true);
                         }
+                        self.save_pending();
+                        let analyzer = self.analyzer();
+                        if report.status == RunStatus::Completed
+                            && analyzer.auto_analyze
+                            && analyzer.auto_timing == AutoTiming::AfterRun
+                        {
+                            self.request_all(&sender);
+                        }
+                        self.start_next(&sender);
                     }
                     Err(message) => {
                         self.activity.status = "Failed".to_owned();
@@ -462,6 +758,7 @@ impl SimpleComponent for App {
                         self.toast(format!("No differences found in {}", dir.display()));
                     }
                     Ok(results) => {
+                        self.queue.reset();
                         *self.results.borrow_mut() = results;
                         self.select_first();
                         self.show_results.set(true);
@@ -474,15 +771,105 @@ impl SimpleComponent for App {
                 self.pane_dirty.set(true);
             }
             Msg::ThemeChanged => self.pane_dirty.set(true),
+            Msg::Analyze(index) => self.request(index, Trigger::Manual, false, &sender),
+            Msg::AnalyzeAnyway(index) => self.request(index, Trigger::Manual, true, &sender),
+            Msg::CancelAnalysis(index) => {
+                let attr = self
+                    .results
+                    .borrow()
+                    .packages
+                    .get(index)
+                    .map(|p| p.attr.clone());
+                if let Some(attr) = attr
+                    && self.queue.cancel_one(&attr)
+                {
+                    self.set_analysis(index, State::Idle);
+                }
+            }
+            Msg::Analysis(generation, attr, update) => {
+                if !self.queue.is_current(generation, &attr) {
+                    return;
+                }
+                let Some(index) = self.results.borrow().index_of(&attr) else {
+                    return;
+                };
+                match update {
+                    Update::Delta { thinking, answer } => {
+                        let mut results = self.results.borrow_mut();
+                        if let State::Running {
+                            thinking: seen,
+                            answer: said,
+                        } = &mut results.packages[index].analysis
+                        {
+                            seen.push_str(&thinking);
+                            said.push_str(&answer);
+                        }
+                        self.analysis_dirty.set(true);
+                    }
+                    Update::Finished(outcome) => {
+                        self.queue.finish();
+                        let thought = match &self.results.borrow().packages[index].analysis {
+                            State::Running { thinking, .. } => thinking.clone(),
+                            _ => String::new(),
+                        };
+                        match outcome {
+                            Outcome::Done(result) => {
+                                self.save_analysis(&attr, &result);
+                                self.results.borrow_mut().packages[index].thinking = thought;
+                                self.set_analysis(index, State::Done(result));
+                            }
+                            Outcome::Cancelled => self.set_analysis(index, State::Idle),
+                            Outcome::Failed(message) => {
+                                self.set_analysis(index, State::Failed(message));
+                            }
+                        }
+                        self.start_next(&sender);
+                    }
+                }
+            }
+            Msg::OpenPrefs => self.open_prefs.set(true),
+            Msg::SetAnalyzer(settings) => {
+                self.form.set_analyzer(settings);
+                if let Err(err) = self.form.read().save() {
+                    log::warn!("could not save the settings: {err}");
+                }
+                self.analysis_dirty.set(true);
+            }
+            Msg::SortByVerdict => {
+                self.results.borrow_mut().sort_by_verdict();
+                self.list_dirty.set(true);
+            }
         }
     }
 
-    fn update_view(&self, widgets: &mut Self::Widgets, _sender: ComponentSender<Self>) {
+    fn update_view(&self, widgets: &mut Self::Widgets, sender: ComponentSender<Self>) {
         let running = self.running();
+        let analysing = self.queue.active();
         widgets.run_button.set_visible(!running);
         widgets.run_button.set_sensitive(self.missing.is_empty());
-        widgets.cancel_button.set_visible(running);
+        widgets.cancel_button.set_visible(running || analysing);
+        if running {
+            widgets.cancel_button.set_label("Cancel run");
+            widgets
+                .cancel_button
+                .set_tooltip_text(Some("Stop the run and the analyses"));
+        } else {
+            widgets.cancel_button.set_label("Cancel analysis");
+            widgets
+                .cancel_button
+                .set_tooltip_text(Some("Stop analysing the remaining packages"));
+        }
         widgets.open_button.set_sensitive(!running);
+        let has_results = !self.results.borrow().packages.is_empty();
+        widgets.sort_button.set_sensitive(has_results);
+        match self.queue.progress() {
+            Some((done, total)) => {
+                widgets
+                    .queue_label
+                    .set_text(&format!("{done} of {total} analysed"));
+            }
+            None => widgets.queue_label.set_text(""),
+        }
 
         widgets.banner.set_revealed(!self.missing.is_empty());
         if !self.missing.is_empty() {
@@ -509,7 +896,12 @@ impl SimpleComponent for App {
         if !lines.is_empty() {
             panes::append_log(&widgets.log_buffer, &widgets.log_view, &lines);
         }
-        widgets.status.set_text(&self.activity.status);
+        let status = match self.queue.progress() {
+            Some((done, total)) if !running => format!("Analysing: {done} of {total} done"),
+            _ if !running && analysing => "Analysing…".to_owned(),
+            _ => self.activity.status.clone(),
+        };
+        widgets.status.set_text(&status);
         match self.activity.fraction {
             Some(fraction) => widgets.progress.set_fraction(fraction),
             None if running => widgets.progress.pulse(),
@@ -523,7 +915,9 @@ impl SimpleComponent for App {
                 }
             }
             let (mut shown, mut same) = (Vec::new(), Vec::new());
-            for (index, package) in self.results.borrow().packages.iter().enumerate() {
+            let results = self.results.borrow();
+            for &index in &results.order {
+                let package = &results.packages[index];
                 let (list, rows) = if package.unchanged() {
                     (&widgets.same_list, &mut same)
                 } else {
@@ -561,15 +955,43 @@ impl SimpleComponent for App {
                 widgets.notebook.remove_page(Some(0));
             }
             widgets.rendered = self.selected;
+            widgets.analysis = None;
 
             let mut results = self.results.borrow_mut();
+            let diff_bytes = self
+                .selected
+                .and_then(|i| results.diff_text(i))
+                .map(|d| d.bytes);
             let shown = self.selected.and_then(|i| results.show(i));
             match shown {
                 Some((package, files)) => {
+                    let settings = self.analyzer();
                     for (output, file) in package.outputs.iter().zip(files) {
                         let page = panes::output_page(output, file, &widgets.window);
                         let label = gtk::Label::new(Some(&panes::tab_label(output)));
                         widgets.notebook.append_page(&page, Some(&label));
+                        if let (Some(bytes), Some(index), true) = (
+                            diff_bytes,
+                            self.selected,
+                            widgets.analysis.is_none()
+                                && output.tool == Tool::Difflog
+                                && output.status == crate::results::Status::Different,
+                        ) {
+                            let pane = AnalysisPane::new(
+                                index,
+                                sender.input_sender().clone(),
+                                &widgets.window,
+                            );
+                            pane.update(&analysis_view::View {
+                                state: &package.analysis,
+                                thinking: &package.thinking,
+                                settings: &settings,
+                                diff_bytes: bytes,
+                            });
+                            let label = gtk::Label::new(Some("Analysis"));
+                            widgets.notebook.append_page(&pane.root, Some(&label));
+                            widgets.analysis = Some((pane, bytes));
+                        }
                     }
                     if let Some(page) = keep_tab {
                         widgets.notebook.set_current_page(Some(page));
@@ -578,6 +1000,28 @@ impl SimpleComponent for App {
                 }
                 None => widgets.content.set_visible_child_name("empty"),
             }
+        }
+
+        if self.analysis_dirty.take()
+            && let (Some((pane, bytes)), Some(index)) = (&widgets.analysis, self.selected)
+            && let Some(package) = self.results.borrow().packages.get(index)
+        {
+            pane.update(&analysis_view::View {
+                state: &package.analysis,
+                thinking: &package.thinking,
+                settings: &self.analyzer(),
+                diff_bytes: *bytes,
+            });
+        }
+
+        if self.open_prefs.take() {
+            let tx = sender.input_sender().clone();
+            prefs::show(
+                &widgets.window,
+                self.analyzer(),
+                Arc::clone(&self.keys),
+                move |settings| tx.emit(Msg::SetAnalyzer(settings)),
+            );
         }
 
         if self.show_results.take() {

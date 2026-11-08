@@ -7,6 +7,8 @@ use std::time::Duration;
 use diff_nixpkgs_attr_core::{Config, Control, ProcessPolicy, SystemdRun};
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::AnalyzerSettings;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -26,6 +28,7 @@ pub struct Settings {
     /// Where `differences-…` goes; empty: inside the nixpkgs checkout.
     pub output_dir: String,
     pub dry_run: bool,
+    pub analyzer: AnalyzerSettings,
 }
 
 impl Default for Settings {
@@ -41,6 +44,7 @@ impl Default for Settings {
             timeout_minutes: 0,
             output_dir: String::new(),
             dry_run: false,
+            analyzer: AnalyzerSettings::default(),
         }
     }
 }

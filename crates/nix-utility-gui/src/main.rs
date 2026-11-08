@@ -1,9 +1,15 @@
 mod activity;
+mod analysis;
+mod analysis_view;
 mod ansi;
 mod app;
 mod form;
+mod keystore;
 mod panes;
+mod prefs;
+mod queue;
 mod results;
+mod runner;
 mod settings;
 
 fn main() {

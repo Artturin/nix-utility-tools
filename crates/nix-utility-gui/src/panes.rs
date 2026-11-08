@@ -11,6 +11,7 @@ use relm4::gtk::{gio, pango};
 use sourceview5::prelude::*;
 
 use crate::activity::{Kind, Line};
+use crate::analysis::{Skipped, State, Verdict};
 use crate::ansi::{self, Style};
 use crate::results::{DISPLAY_CAP, Package, Status, ToolOutput};
 
@@ -254,7 +255,34 @@ pub fn package_row(package: &Package) -> adw::ActionRow {
     } else if problems > 0 {
         row.add_prefix(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
     }
+    add_verdict(&row, &package.analysis);
     row
+}
+
+/// The analysis verdict, as a badge on the row.
+fn add_verdict(row: &adw::ActionRow, state: &State) {
+    let (text, css): (String, &str) = match state {
+        State::Done(result) => {
+            let doubt = if result.unreliable { " ?" } else { "" };
+            match result.verdict {
+                Verdict::Consequential => (format!("consequential{doubt}"), "warning"),
+                Verdict::Inconsequential => (format!("inconsequential{doubt}"), "success"),
+            }
+        }
+        State::Queued => ("queued".to_owned(), "dim-label"),
+        State::Running { .. } => ("analysing…".to_owned(), "dim-label"),
+        State::Failed(_) => ("analysis failed".to_owned(), "error"),
+        State::TooLarge { .. } => ("too large".to_owned(), "dim-label"),
+        State::Skipped(Skipped::CapReached) => ("not analysed".to_owned(), "dim-label"),
+        State::Idle | State::ContextTooSmall => return,
+    };
+    row.add_suffix(
+        &gtk::Label::builder()
+            .label(text)
+            .css_classes([css, "caption"])
+            .valign(gtk::Align::Center)
+            .build(),
+    );
 }
 
 /// Titles are Pango markup; attributes are plain text.

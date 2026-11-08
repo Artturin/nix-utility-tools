@@ -135,7 +135,10 @@ impl Default for AnalyzerSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeCheck {
     Fits,
-    TooLarge { bytes: usize, limit: usize },
+    TooLarge {
+        bytes: usize,
+        limit: usize,
+    },
     /// The context cannot hold the template and the answer budget at all.
     ContextTooSmall,
 }
@@ -311,15 +314,17 @@ pub enum State {
 }
 
 impl State {
-    pub fn verdict(&self) -> Option<Verdict> {
+    /// Where a package goes when sorted by verdict: consequential first,
+    /// everything that is not known to be harmless next, inconsequential last.
+    pub fn sort_rank(&self) -> u8 {
         match self {
-            State::Done(result) => Some(result.verdict),
-            _ => None,
+            State::Done(result) => match result.verdict {
+                Verdict::Consequential => 0,
+                Verdict::Inconsequential if result.unreliable => 1,
+                Verdict::Inconsequential => 2,
+            },
+            _ => 1,
         }
-    }
-
-    pub fn busy(&self) -> bool {
-        matches!(self, State::Queued | State::Running { .. })
     }
 }
 
@@ -620,7 +625,7 @@ mod tests {
     fn timestamps_are_rfc3339_utc() {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(rfc3339(1_794_198_600), "2026-11-08T04:30:00Z");
+        assert_eq!(rfc3339(1_794_198_600), "2026-11-09T04:30:00Z");
     }
 
     #[test]

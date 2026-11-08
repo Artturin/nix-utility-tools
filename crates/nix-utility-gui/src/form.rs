@@ -9,6 +9,7 @@ use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::gtk::gio;
 
+use crate::analysis::AnalyzerSettings;
 use crate::settings::Settings;
 
 #[derive(Clone)]
@@ -25,6 +26,8 @@ pub struct Form {
     diffoscope_memory: adw::SpinRow,
     timeout: adw::SpinRow,
     dry_run: adw::SwitchRow,
+    /// Edited in the preferences window, so the form only carries it along.
+    analyzer: Rc<RefCell<AnalyzerSettings>>,
 }
 
 const REPO_PLACEHOLDER: &str = "No directory chosen";
@@ -180,6 +183,7 @@ impl Form {
             diffoscope_memory,
             timeout,
             dry_run,
+            analyzer: Rc::default(),
         };
         form.write(settings);
         (form, clamp.upcast())
@@ -207,6 +211,15 @@ impl Form {
             .set_value(settings.diffoscope_memory_mib as f64);
         self.timeout.set_value(settings.timeout_minutes as f64);
         self.dry_run.set_active(settings.dry_run);
+        *self.analyzer.borrow_mut() = settings.analyzer.clone();
+    }
+
+    pub fn analyzer(&self) -> AnalyzerSettings {
+        self.analyzer.borrow().clone()
+    }
+
+    pub fn set_analyzer(&self, settings: AnalyzerSettings) {
+        *self.analyzer.borrow_mut() = settings;
     }
 
     pub fn read(&self) -> Settings {
@@ -221,6 +234,7 @@ impl Form {
             timeout_minutes: self.timeout.value() as u64,
             output_dir: self.output_dir.borrow().clone(),
             dry_run: self.dry_run.is_active(),
+            analyzer: self.analyzer.borrow().clone(),
         }
     }
 }

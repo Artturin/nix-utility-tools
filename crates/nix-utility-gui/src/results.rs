@@ -5,7 +5,11 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use diff_nixpkgs_attr_core::{Event, Tool, ToolStatus, difflog_path, diffoscope_path};
+use diff_nixpkgs_attr_core::{
+    Event, Tool, ToolStatus, analysis_path, difflog_path, diffoscope_path,
+};
+
+use crate::analysis::{self, State};
 
 /// How much of one output is kept in memory for display. The whole output is
 /// always saved to disk.
@@ -127,6 +131,16 @@ impl ToolOutput {
 pub struct Package {
     pub attr: String,
     pub outputs: Vec<ToolOutput>,
+    pub analysis: State,
+    /// What the model thought, kept for the session only.
+    pub thinking: String,
+}
+
+/// The build log diff of a package, as it is sent to the model.
+pub struct DiffText {
+    pub text: String,
+    /// The whole diff, even when only the start is kept for display.
+    pub bytes: usize,
 }
 
 impl Package {
@@ -148,6 +162,9 @@ impl Package {
 pub struct Results {
     pub packages: Vec<Package>,
     pub saved_dir: Option<PathBuf>,
+    /// Package indices in the order the sidebar lists them: arrival order
+    /// until sorted by verdict, so rows do not jump while analyses arrive.
+    pub order: Vec<usize>,
     /// The output that `Event::Output` chunks belong to.
     current: Option<(usize, usize)>,
 }
@@ -158,9 +175,12 @@ impl Results {
     pub fn apply(&mut self, event: &Event) -> bool {
         match event {
             Event::PackageStarting { attr, .. } => {
+                self.order.push(self.packages.len());
                 self.packages.push(Package {
                     attr: attr.clone(),
                     outputs: Vec::new(),
+                    analysis: State::Idle,
+                    thinking: String::new(),
                 });
                 self.current = None;
                 true
@@ -212,6 +232,33 @@ impl Results {
             }
             _ => false,
         }
+    }
+
+    pub fn index_of(&self, attr: &str) -> Option<usize> {
+        self.packages.iter().position(|p| p.attr == attr)
+    }
+
+    /// The difflog of package `index` when it has differences to analyze.
+    pub fn diff_text(&mut self, index: usize) -> Option<DiffText> {
+        let output = self
+            .packages
+            .get_mut(index)?
+            .outputs
+            .iter_mut()
+            .find(|o| o.tool == Tool::Difflog && o.status == Status::Different)?;
+        output.ensure_loaded();
+        Some(DiffText {
+            text: output.text.text(),
+            bytes: output.text.total(),
+        })
+    }
+
+    /// Consequential packages first, inconsequential last, otherwise in
+    /// arrival order.
+    pub fn sort_by_verdict(&mut self) {
+        let packages = &self.packages;
+        self.order
+            .sort_by_key(|&i| (packages[i].analysis.sort_rank(), i));
     }
 
     fn current_output(&mut self) -> Option<&mut ToolOutput> {
@@ -270,10 +317,18 @@ impl Results {
                 }
             }
             if !outputs.is_empty() {
-                packages.push(Package { attr, outputs });
+                let analysis = analysis::load(&analysis_path(dir, &attr))
+                    .map_or(State::Idle, |result| State::Done(Box::new(result)));
+                packages.push(Package {
+                    attr,
+                    outputs,
+                    analysis,
+                    thinking: String::new(),
+                });
             }
         }
         Ok(Self {
+            order: (0..packages.len()).collect(),
             packages,
             saved_dir: Some(dir.to_owned()),
             current: None,
@@ -444,5 +499,71 @@ mod tests {
     #[test]
     fn loading_a_missing_directory_fails() {
         assert!(Results::load(Path::new("/nonexistent/differences")).is_err());
+    }
+
+    fn done(verdict: analysis::Verdict, unreliable: bool) -> State {
+        State::Done(Box::new(analysis::AnalysisResult {
+            verdict,
+            explanation: String::new(),
+            provenance: analysis::Provenance {
+                endpoint: analysis::Endpoint::Ollama,
+                model: "m".into(),
+                host: None,
+                trigger: analysis::Trigger::Manual,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+            },
+            prompt_tokens: None,
+            warning: None,
+            unreliable,
+        }))
+    }
+
+    #[test]
+    fn sorting_by_verdict_is_stable_and_only_when_asked() {
+        use analysis::Verdict::{Consequential, Inconsequential};
+        let mut results = Results::default();
+        for attr in ["a", "b", "c", "d", "e"] {
+            results.apply(&started(attr));
+        }
+        results.packages[0].analysis = done(Inconsequential, false);
+        results.packages[1].analysis = State::Failed("x".into());
+        results.packages[2].analysis = done(Consequential, false);
+        results.packages[3].analysis = done(Inconsequential, true);
+        results.packages[4].analysis = done(Consequential, true);
+        assert_eq!(results.order, [0, 1, 2, 3, 4], "arrival order until sorted");
+        results.sort_by_verdict();
+        assert_eq!(results.order, [2, 4, 1, 3, 0]);
+    }
+
+    #[test]
+    fn diff_text_is_the_difflog_with_differences() {
+        let mut results = Results::default();
+        results.apply(&started("a"));
+        results.apply(&tool_started(Tool::Difflog, None));
+        results.apply(&output(Tool::Difflog, "-x\n+y\n"));
+        assert!(results.diff_text(0).is_none(), "still running");
+        results.apply(&finished(Tool::Difflog, None, ToolStatus::Different));
+        let diff = results.diff_text(0).unwrap();
+        assert_eq!((diff.text.as_str(), diff.bytes), ("-x\n+y\n", 6));
+        assert!(results.diff_text(1).is_none());
+    }
+
+    #[test]
+    fn a_saved_analysis_is_shown_again_when_a_directory_is_opened() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("a")).unwrap();
+        fs::write(dir.join("a/difflog"), "+x\n").unwrap();
+        fs::create_dir_all(dir.join("b")).unwrap();
+        fs::write(dir.join("b/difflog"), "+x\n").unwrap();
+        let State::Done(result) = done(analysis::Verdict::Consequential, false) else {
+            unreachable!()
+        };
+        analysis::save(&analysis_path(dir, "a"), &result, false).unwrap();
+        fs::write(dir.join("b/analysis"), "not json").unwrap();
+
+        let results = Results::load(dir).unwrap();
+        assert_eq!(results.packages[0].analysis.sort_rank(), 0);
+        assert_eq!(results.packages[1].analysis, State::Idle);
     }
 }
