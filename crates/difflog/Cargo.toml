@@ -1,0 +1,16 @@
+[package]
+name = "difflog"
+version.workspace = true
+edition.workspace = true
+description = "Compare two Nix build logs, normalizing out boring differences"
+
+[dependencies]
+anstyle = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = "3"
+env_logger = "0.11"
+log = "0.4"
+regex = "1"
+shell-words = "1"
+tempfile = "3"

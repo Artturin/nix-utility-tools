@@ -7,10 +7,8 @@
 
 set -euo pipefail
 
-# difflog lives next to this script; diffoscope-nix must be in PATH
-# (nix run .#diff-nixpkgs-attr puts it and the other tools in PATH)
-script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
-PATH="$script_dir${PATH:+:$PATH}"
+# difflog and diffoscope-nix must be in PATH
+# (nix run .#diff-nixpkgs-attr puts them and the other tools in PATH)
 
 # --- colours -----------------------------------------------------------------
 COLOR_ON=(0 0 0) # indexed by fd: 1 = stdout, 2 = stderr

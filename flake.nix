@@ -86,6 +86,16 @@
       # One entry per workspace member under crates/. Adding a crate there and an
       # entry here is all that's needed to expose it as a package and in the overlay.
       crates = lib.mapAttrs (name: args: mkWorkspaceCrate (args // { inherit name; })) {
+        difflog = {
+          description = "Compare two Nix build logs, normalizing out boring differences";
+          extraArgs = pkgs: {
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            # difflog runs git diff --no-index; nix itself is left to the user's setup
+            postInstall = ''
+              wrapProgram $out/bin/difflog --prefix PATH : ${lib.makeBinPath [ pkgs.git ]}
+            '';
+          };
+        };
         diffoscope-nix = {
           description = "Run diffoscope on two Nix store paths, ignoring differences that are only due to differing store path hashes and GNU build IDs";
         };
@@ -98,10 +108,10 @@
         };
       };
 
-      # diff-nixpkgs-attr and difflog with the tools they call (and diffoscope-nix
-      # and diffoscope) on their PATH. nix itself is left to the user's setup.
+      # diff-nixpkgs-attr with the tools it calls (difflog, diffoscope-nix and
+      # diffoscope) on its PATH. nix itself is left to the user's setup.
       mkScripts =
-        pkgs: diffoscope-nix:
+        pkgs: difflog: diffoscope-nix:
         pkgs.callPackage (
           {
             lib,
@@ -115,44 +125,31 @@
             gnused,
             jq,
             less,
-            perl,
           }:
           stdenvNoCC.mkDerivation {
             pname = "diff-nixpkgs-attr";
             version = workspaceVersion;
             src = lib.fileset.toSource {
               root = ./bin;
-              fileset = lib.fileset.unions [
-                ./bin/diff-nixpkgs-attr
-                ./bin/difflog
-              ];
+              fileset = ./bin/diff-nixpkgs-attr;
             };
             nativeBuildInputs = [ makeWrapper ];
             dontBuild = true;
-            # diff-nixpkgs-attr finds difflog next to itself
             installPhase = ''
               runHook preInstall
-              install -Dm755 -t $out/bin diff-nixpkgs-attr difflog
+              install -Dm755 -t $out/bin diff-nixpkgs-attr
               wrapProgram $out/bin/diff-nixpkgs-attr --prefix PATH : ${
                 lib.makeBinPath [
                   coreutils
                   diffoscope
                   diffoscope-nix
+                  difflog
                   findutils
                   gawk
                   git
                   gnused
                   jq
                   less
-                  perl
-                ]
-              }
-              wrapProgram $out/bin/difflog --prefix PATH : ${
-                lib.makeBinPath [
-                  coreutils
-                  git
-                  gnused
-                  perl
                 ]
               }
               runHook postInstall
@@ -178,7 +175,7 @@
         }
         // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates
         // {
-          diff-nixpkgs-attr = mkScripts pkgs (crates.diffoscope-nix pkgs);
+          diff-nixpkgs-attr = mkScripts pkgs (crates.difflog pkgs) (crates.diffoscope-nix pkgs);
         };
 
         apps.default = utils.lib.mkApp {
@@ -206,7 +203,7 @@
         final: prev:
         lib.mapAttrs (_: mkCrate: mkCrate prev) crates
         // {
-          diff-nixpkgs-attr = mkScripts prev final.diffoscope-nix;
+          diff-nixpkgs-attr = mkScripts prev final.difflog final.diffoscope-nix;
         };
     };
 }
