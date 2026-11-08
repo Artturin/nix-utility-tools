@@ -15,6 +15,8 @@ pub enum Outcome {
     /// No usable answer: unrecognised output, or the thinking budget ran
     /// out before the model answered. Exit 2.
     NoAnswer,
+    /// Interrupted (Ctrl-C). Exit 130.
+    Cancelled,
 }
 
 impl From<Outcome> for ExitCode {
@@ -23,6 +25,7 @@ impl From<Outcome> for ExitCode {
             Outcome::DryRun | Outcome::Inconsequential => ExitCode::SUCCESS,
             Outcome::Consequential | Outcome::Failed => ExitCode::FAILURE,
             Outcome::NoAnswer => ExitCode::from(2),
+            Outcome::Cancelled => ExitCode::from(130),
         }
     }
 }

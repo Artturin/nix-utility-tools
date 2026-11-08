@@ -1,0 +1,70 @@
+@nix {"action":"msg","level":4,"msg":"evaluating file '«nix-internal»/derivation-internal.nix'"}
+@nix {"action":"msg","level":4,"msg":"evaluating file '/tmp/nixfx/a.nix'"}
+@nix {"action":"start","id":12253850933133312,"level":6,"parent":0,"text":"querying info about missing paths","type":0}
+@nix {"action":"start","fields":["/nix/store/m3r9j23bvsp0liswpyaksh54gf4ilr1c-fx-a-1794106199","https://cache.nixos.org"],"id":12253850933133313,"level":4,"parent":0,"text":"querying info about '/nix/store/m3r9j23bvsp0liswpyaksh54gf4ilr1c-fx-a-1794106199' on 'https://cache.nixos.org'","type":109}
+@nix {"action":"start","fields":["https://cache.nixos.org/m3r9j23bvsp0liswpyaksh54gf4ilr1c.narinfo"],"id":12253850933133314,"level":4,"parent":12253850933133313,"text":"downloading 'https://cache.nixos.org/m3r9j23bvsp0liswpyaksh54gf4ilr1c.narinfo'","type":101}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12253850933133314,"type":105}
+@nix {"action":"stop","id":12253850933133313}
+@nix {"action":"stop","id":12253850933133314}
+@nix {"action":"start","fields":["/nix/store/m3r9j23bvsp0liswpyaksh54gf4ilr1c-fx-a-1794106199","https://nixpkgs-wayland.cachix.org"],"id":12253850933133315,"level":4,"parent":0,"text":"querying info about '/nix/store/m3r9j23bvsp0liswpyaksh54gf4ilr1c-fx-a-1794106199' on 'https://nixpkgs-wayland.cachix.org'","type":109}
+@nix {"action":"start","fields":["https://nixpkgs-wayland.cachix.org/m3r9j23bvsp0liswpyaksh54gf4ilr1c.narinfo"],"id":12253850933133316,"level":4,"parent":12253850933133315,"text":"downloading 'https://nixpkgs-wayland.cachix.org/m3r9j23bvsp0liswpyaksh54gf4ilr1c.narinfo'","type":101}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133316,"type":105}
+@nix {"action":"stop","id":12253850933133315}
+@nix {"action":"stop","id":12253850933133316}
+@nix {"action":"stop","id":12253850933133312}
+@nix {"action":"msg","level":3,"msg":"this derivation will be built:"}
+@nix {"action":"msg","level":3,"msg":"  /nix/store/zwkkghilp2s5g1ds47gams5f8j2klqy6-fx-a-1794106199.drv"}
+@nix {"action":"start","id":12253850933133317,"level":0,"parent":0,"text":"","type":102}
+@nix {"action":"start","id":12253850933133318,"level":0,"parent":0,"text":"","type":104}
+@nix {"action":"start","id":12253850933133319,"level":0,"parent":0,"text":"","type":103}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133318,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133319,"type":105}
+@nix {"action":"result","fields":[101,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":[100,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":[0,1,0,0],"id":12253850933133318,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133319,"type":105}
+@nix {"action":"result","fields":[101,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":[100,0],"id":12253850933133317,"type":106}
+@nix {"action":"start","fields":["/nix/store/zwkkghilp2s5g1ds47gams5f8j2klqy6-fx-a-1794106199.drv","",1,1],"id":12253850933133320,"level":3,"parent":0,"text":"building '/nix/store/zwkkghilp2s5g1ds47gams5f8j2klqy6-fx-a-1794106199.drv'","type":105}
+@nix {"action":"result","fields":[0,1,1,0],"id":12253850933133318,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133319,"type":105}
+@nix {"action":"result","fields":[101,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":[100,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":["building fx-a-1794106199"],"id":12253850933133320,"type":101}
+@nix {"action":"result","fields":["warn-line"],"id":12253850933133320,"type":101}
+@nix {"action":"result","fields":[1,2,0,0],"id":12253850933133318,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12253850933133319,"type":105}
+@nix {"action":"result","fields":[101,0],"id":12253850933133317,"type":106}
+@nix {"action":"result","fields":[100,0],"id":12253850933133317,"type":106}
+@nix {"action":"stop","id":12253850933133320}
+@nix {"action":"stop","id":12253850933133319}
+@nix {"action":"stop","id":12253850933133318}
+@nix {"action":"stop","id":12253850933133317}

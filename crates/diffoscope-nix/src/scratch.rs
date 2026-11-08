@@ -12,16 +12,10 @@ use walkdir::WalkDir;
 pub struct Scratch(TempDir);
 
 impl Scratch {
+    /// Cleanup happens on drop, so an interrupted run has to unwind (the
+    /// binary turns Ctrl-C into a cancellation) rather than exit.
     pub fn new() -> Result<Self> {
-        let dir = TempDir::new()?;
-        let path = dir.path().to_owned();
-        // Interrupted while normalizing or diffing: the guard below never
-        // runs, so clean up here.
-        ctrlc::set_handler(move || {
-            remove_tree(&path);
-            std::process::exit(130);
-        })?;
-        Ok(Self(dir))
+        Ok(Self(TempDir::new()?))
     }
 
     pub fn path(&self) -> PathBuf {
@@ -47,9 +41,4 @@ fn make_writable(root: &Path) {
             fs::Permissions::from_mode(meta.permissions().mode() | extra),
         );
     }
-}
-
-fn remove_tree(root: &Path) {
-    make_writable(root);
-    let _ = fs::remove_dir_all(root);
 }

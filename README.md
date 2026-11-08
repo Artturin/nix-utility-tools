@@ -3,10 +3,16 @@ Here are tools which I use to review nixpkgs packages, mainly to diff package ou
 ## Programs
 
 - `diff-nixpkgs-attr`: builds nixpkgs attributes at the current and base
-  revisions, then compares changed outputs and build logs.
-  including `diffoscope-nix` and `diffoscope`
+  revisions, then compares changed outputs and build logs with `difflog` and
+  `diffoscope-nix` (run in-process; `diffoscope`, `git` and `nix-eval-jobs` are
+  provided by the flake package, `nix` is left to your setup).
   The differences found are also saved as plain text in
   `$PWD/differences-ATTRS-BRANCH-SHORTREV/FULL-ATTRPATH/{difflog,diffoscope/OUTPUT}`.
+  Evaluation uses 2 `nix-eval-jobs` workers by default (`WORKERS` or
+  `--workers`); each is a full nixpkgs evaluator, and `--max-eval-memory`
+  restarts one that grows too large. `--memory-max SIZE` caps each diffoscope
+  run (needs `systemd-run --user`), and `--timeout SECONDS` limits every
+  external command. Ctrl-C stops the running command and cleans up.
 - `difflog`: normalizes two Nix build logs before diffing them to hide common
   nondeterministic differences.
 - `diffoscope-nix`: runs diffoscope on two Nix store

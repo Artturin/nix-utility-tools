@@ -88,7 +88,11 @@ fn inconsequential_answer_exits_0() {
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 0, "{}", result.stderr);
-    assert!(result.stderr.contains("[INCONSEQUENTIAL]"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("[INCONSEQUENTIAL]"),
+        "{}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -105,7 +109,11 @@ fn consequential_answer_exits_1_and_prints_the_explanation_on_stdout() {
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 1);
-    assert!(result.stdout.contains("A new library is linked."), "{}", result.stdout);
+    assert!(
+        result.stdout.contains("A new library is linked."),
+        "{}",
+        result.stdout
+    );
     assert!(result.stderr.contains("[WARNING]"), "{}", result.stderr);
 }
 
@@ -126,7 +134,9 @@ fn inline_think_block_is_ignored_when_reading_the_verdict() {
     let mut server = Server::new();
     chat(
         &mut server,
-        &[delta(json!({ "content": "<think>True? hmm</think>\nFalse" }))],
+        &[delta(
+            json!({ "content": "<think>True? hmm</think>\nFalse" }),
+        )],
     );
 
     assert_eq!(analyze(&server, &[]).code, 0);
@@ -149,7 +159,11 @@ fn thinking_is_streamed_to_stderr_for_both_server_flavours() {
         let result = analyze(&server, &["--show-thinking"]);
 
         assert_eq!(result.code, 0, "{field}: {}", result.stderr);
-        assert!(result.stderr.contains("checking targets"), "{field}: {}", result.stderr);
+        assert!(
+            result.stderr.contains("checking targets"),
+            "{field}: {}",
+            result.stderr
+        );
         assert!(!result.stdout.contains("checking targets"), "{field}");
     }
 }
@@ -168,7 +182,11 @@ fn thinking_is_hidden_by_default() {
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 0);
-    assert!(!result.stderr.contains("secret thoughts"), "{}", result.stderr);
+    assert!(
+        !result.stderr.contains("secret thoughts"),
+        "{}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -193,13 +211,19 @@ fn no_colour_codes_when_output_is_not_a_terminal() {
 #[test]
 fn exceeding_the_thinking_budget_exits_2_before_any_answer() {
     let mut server = Server::new();
-    let thoughts: Vec<Value> = (0..3).map(|_| delta(json!({ "reasoning_content": "t" }))).collect();
+    let thoughts: Vec<Value> = (0..3)
+        .map(|_| delta(json!({ "reasoning_content": "t" })))
+        .collect();
     chat(&mut server, &thoughts);
 
     let result = analyze(&server, &["--max-thinking-tokens", "2"]);
 
     assert_eq!(result.code, 2);
-    assert!(result.stderr.contains("--max-thinking-tokens"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("--max-thinking-tokens"),
+        "{}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -271,7 +295,9 @@ fn the_prompt_contains_the_diff() {
     let mut server = Server::new();
     let mock = server
         .mock("POST", "/v1/chat/completions")
-        .match_body(Matcher::Regex(r"<diff_content>\\n-foo\\n\+bar\\n\\n</diff_content>".into()))
+        .match_body(Matcher::Regex(
+            r"<diff_content>\\n-foo\\n\+bar\\n\\n</diff_content>".into(),
+        ))
         .with_status(200)
         .with_body(sse(&[delta(json!({ "content": "False" }))]))
         .create();
@@ -315,17 +341,36 @@ fn host_with_a_v1_suffix_works() {
 #[test]
 fn endpoint_selects_the_default_address() {
     let ollama = run(&["--dry-run", "--model", "m"], DIFF);
-    assert!(ollama.stderr.contains("ollama at http://127.0.0.1:11434/v1/"), "{}", ollama.stderr);
+    assert!(
+        ollama
+            .stderr
+            .contains("ollama at http://127.0.0.1:11434/v1/"),
+        "{}",
+        ollama.stderr
+    );
 
-    let llama = run(&["--dry-run", "--model", "m", "--endpoint", "llama-cpp"], DIFF);
-    assert!(llama.stderr.contains("llama.cpp at http://127.0.0.1:8080/v1/"), "{}", llama.stderr);
+    let llama = run(
+        &["--dry-run", "--model", "m", "--endpoint", "llama-cpp"],
+        DIFF,
+    );
+    assert!(
+        llama
+            .stderr
+            .contains("llama.cpp at http://127.0.0.1:8080/v1/"),
+        "{}",
+        llama.stderr
+    );
 
     let from_env = run_with_env(
         &["--dry-run", "--model", "m"],
         &[("NIX_LOG_DIFF_ANALYZER_LLM_ENDPOINT", "llama-cpp")],
         DIFF,
     );
-    assert!(from_env.stderr.contains("llama.cpp at"), "{}", from_env.stderr);
+    assert!(
+        from_env.stderr.contains("llama.cpp at"),
+        "{}",
+        from_env.stderr
+    );
 }
 
 #[test]
@@ -333,10 +378,22 @@ fn ollama_host_variable_is_honoured_for_ollama_only() {
     let env = [("OLLAMA_HOST", "somehost")];
 
     let ollama = run_with_env(&["--dry-run", "--model", "m"], &env, DIFF);
-    assert!(ollama.stderr.contains("http://somehost:11434/v1/"), "{}", ollama.stderr);
+    assert!(
+        ollama.stderr.contains("http://somehost:11434/v1/"),
+        "{}",
+        ollama.stderr
+    );
 
-    let llama = run_with_env(&["--dry-run", "--model", "m", "--endpoint", "llama-cpp"], &env, DIFF);
-    assert!(llama.stderr.contains("http://127.0.0.1:8080/v1/"), "{}", llama.stderr);
+    let llama = run_with_env(
+        &["--dry-run", "--model", "m", "--endpoint", "llama-cpp"],
+        &env,
+        DIFF,
+    );
+    assert!(
+        llama.stderr.contains("http://127.0.0.1:8080/v1/"),
+        "{}",
+        llama.stderr
+    );
 }
 
 // ---- generic OpenAI-compatible servers (Gemini, OpenAI, ...) ----
@@ -353,7 +410,9 @@ fn the_openai_endpoint_does_not_send_top_k() {
     let mock = server
         .mock("POST", "/v1/chat/completions")
         .match_request(without_top_k)
-        .match_body(Matcher::PartialJson(json!({ "temperature": 0.0, "top_p": 0.5 })))
+        .match_body(Matcher::PartialJson(
+            json!({ "temperature": 0.0, "top_p": 0.5 }),
+        ))
         .with_status(200)
         .with_body(sse(&[delta(json!({ "content": "False" }))]))
         .create();
@@ -376,7 +435,10 @@ fn a_host_with_a_path_is_used_as_the_complete_api_base() {
         .create();
     let host = format!("{}/v1beta/openai/", server.url());
 
-    let result = run(&["--endpoint", "openai", "--host", &host, "--model", "m"], DIFF);
+    let result = run(
+        &["--endpoint", "openai", "--host", &host, "--model", "m"],
+        DIFF,
+    );
 
     assert_eq!(result.code, 0, "{}", result.stderr);
     mock.assert();
@@ -424,7 +486,11 @@ fn a_server_rejecting_top_k_suggests_the_openai_endpoint() {
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("--endpoint openai"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("--endpoint openai"),
+        "{}",
+        result.stderr
+    );
 }
 
 // ---- model selection ----
@@ -479,8 +545,16 @@ fn dry_run_needs_no_server_and_shows_a_diff_summary() {
 
     assert_eq!(result.code, 0, "{}", result.stderr);
     assert!(result.stderr.contains("DRY RUN"), "{}", result.stderr);
-    assert!(result.stdout.contains("diff omitted: 2 lines"), "{}", result.stdout);
-    assert!(result.stdout.contains("# OUTPUT FORMAT"), "{}", result.stdout);
+    assert!(
+        result.stdout.contains("diff omitted: 2 lines"),
+        "{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("# OUTPUT FORMAT"),
+        "{}",
+        result.stdout
+    );
 }
 
 #[test]
@@ -492,7 +566,11 @@ fn a_file_argument_wins_over_stdin() {
     std::fs::remove_file(&path).unwrap();
 
     assert_eq!(result.code, 0, "{}", result.stderr);
-    assert!(result.stdout.contains("diff omitted: 2 lines, 22 bytes"), "{}", result.stdout);
+    assert!(
+        result.stdout.contains("diff omitted: 2 lines, 22 bytes"),
+        "{}",
+        result.stdout
+    );
 }
 
 #[test]
@@ -500,7 +578,11 @@ fn empty_input_is_an_error() {
     let result = run(&["--dry-run", "--model", "m"], "");
 
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("Diff input is empty"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("Diff input is empty"),
+        "{}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -508,7 +590,11 @@ fn a_missing_file_is_an_error() {
     let result = run(&["--model", "m", "/nonexistent/nope.diff"], "");
 
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("/nonexistent/nope.diff"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("/nonexistent/nope.diff"),
+        "{}",
+        result.stderr
+    );
 }
 
 // ---- server failures ----
@@ -525,7 +611,11 @@ fn http_errors_show_the_servers_message() {
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 1);
-    assert!(result.stderr.contains("model 'nope' not found"), "{}", result.stderr);
+    assert!(
+        result.stderr.contains("model 'nope' not found"),
+        "{}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -539,10 +629,59 @@ fn an_unreachable_server_is_an_error() {
 #[test]
 fn error_chunks_in_the_stream_are_reported() {
     let mut server = Server::new();
-    chat(&mut server, &[json!({ "error": { "message": "out of memory" } })]);
+    chat(
+        &mut server,
+        &[json!({ "error": { "message": "out of memory" } })],
+    );
 
     let result = analyze(&server, &[]);
 
     assert_eq!(result.code, 1);
     assert!(result.stderr.contains("out of memory"), "{}", result.stderr);
+}
+
+#[test]
+fn ctrl_c_stops_promptly_while_the_server_is_silent() {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    // Accepts the request and never answers, like a model that is still loading.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let (connected_tx, connected_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut buf = [0; 1024];
+        let _ = conn.read(&mut buf);
+        connected_tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_secs(30));
+    });
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nix-log-diff-analyzer"))
+        .args(["--host", &host, "--model", "m"])
+        .env_clear()
+        .envs(std::env::var_os("SSL_CERT_FILE").map(|cert| ("SSL_CERT_FILE", cert)))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(DIFF.as_bytes())
+        .unwrap();
+    connected_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let started = Instant::now();
+    Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert_eq!(output.status.code(), Some(130));
+    assert!(started.elapsed() < Duration::from_secs(5));
 }

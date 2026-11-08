@@ -2,9 +2,10 @@
 //! PATH, which prints its arguments and diffs the two trees it was given.
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use tempfile::TempDir;
 
@@ -207,4 +208,43 @@ fn unknown_option_before_the_paths_is_rejected() {
     let env = Env::new();
     let run = env.run(&["--bogus", "a", "b"], true);
     assert_eq!(run.code, 2);
+}
+
+#[test]
+fn ctrl_c_stops_diffoscope_and_removes_the_temp_dir() {
+    let env = Env::new();
+    let a = env.tree("a", HASH_A);
+    let b = env.tree("b", HASH_B);
+    fs::write(
+        env.path("bin/diffoscope"),
+        "#!/bin/sh\necho \"args: $*\" >&2\nsleep 60 & wait\n",
+    )
+    .unwrap();
+    let path = format!(
+        "{}:{}",
+        env.path("bin").display(),
+        std::env::var("PATH").unwrap()
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_diffoscope-nix"))
+        .args([&a, &b])
+        .env("PATH", path)
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let args = loop {
+        let line = lines.next().expect("diffoscope started").unwrap();
+        if let Some(args) = line.strip_prefix("args: ") {
+            break args.to_owned();
+        }
+    };
+    let copy = args.split_whitespace().rev().nth(1).unwrap().to_owned();
+    assert!(Path::new(&copy).exists());
+
+    Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(130));
+    assert!(!Path::new(&copy).exists(), "{copy} left behind");
 }

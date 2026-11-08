@@ -12,6 +12,7 @@ use filetime::FileTime;
 use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
+use nix_utility_common::CancelToken;
 use walkdir::WalkDir;
 
 use crate::elf;
@@ -26,27 +27,38 @@ pub struct Options {
 }
 
 /// Rewrite every symlink target and file below `root` (or `root` itself).
-/// A symlink given as `root` is followed.
-pub fn normalize(root: &Path, opts: Options) -> Result<()> {
+/// A symlink given as `root` is followed. With `list_only`, `plan` receives a
+/// line for everything that would be rewritten instead.
+///
+/// Returns false if `cancel` fired before the whole tree was done.
+pub fn normalize(
+    root: &Path,
+    opts: Options,
+    cancel: &CancelToken,
+    plan: &mut dyn FnMut(String),
+) -> Result<bool> {
     for entry in WalkDir::new(root).sort_by_file_name() {
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
         let entry = entry?;
         let file_type = entry.file_type();
         if file_type.is_symlink() {
-            normalize_symlink(entry.path(), opts)?;
+            normalize_symlink(entry.path(), opts, plan)?;
         } else if file_type.is_file() {
-            normalize_file(entry.path(), opts)?;
+            normalize_file(entry.path(), opts, plan)?;
         }
     }
-    Ok(())
+    Ok(true)
 }
 
-fn normalize_symlink(path: &Path, opts: Options) -> Result<()> {
+fn normalize_symlink(path: &Path, opts: Options, plan: &mut dyn FnMut(String)) -> Result<()> {
     let target = fs::read_link(path).with_context(|| format!("reading link {}", path.display()))?;
     let Cow::Owned(new) = rewrite(target.as_os_str().as_bytes()) else {
         return Ok(());
     };
     if opts.list_only {
-        println!("  symlink {}", path.display());
+        plan(format!("  symlink {}", path.display()));
         return Ok(());
     }
 
@@ -74,7 +86,7 @@ fn normalize_symlink(path: &Path, opts: Options) -> Result<()> {
     Ok(())
 }
 
-fn normalize_file(path: &Path, opts: Options) -> Result<()> {
+fn normalize_file(path: &Path, opts: Options, plan: &mut dyn FnMut(String)) -> Result<()> {
     let meta = fs::metadata(path)?;
     let content = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let Some(new) = rewrite_contents(&content, opts.strip_build_id)
@@ -83,7 +95,11 @@ fn normalize_file(path: &Path, opts: Options) -> Result<()> {
         return Ok(());
     };
     if opts.list_only {
-        println!("  file    {} ({})", path.display(), new.reasons.join(", "));
+        plan(format!(
+            "  file    {} ({})",
+            path.display(),
+            new.reasons.join(", ")
+        ));
         return Ok(());
     }
 

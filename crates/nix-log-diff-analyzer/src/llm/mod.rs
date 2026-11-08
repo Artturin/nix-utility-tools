@@ -9,11 +9,72 @@
 mod openai;
 mod stream;
 
+use std::future::Future;
+use std::time::Duration;
+
 use anyhow::{Result, bail};
+use nix_utility_common::CancelToken;
 
 pub use openai::OpenAiClient;
 
-use crate::cli::LlmEndpoint;
+/// Which LLM server to talk to. All of them speak the OpenAI-compatible API
+/// (`/chat/completions`); the choice sets the default address and whether
+/// non-standard sampling options are sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmEndpoint {
+    Ollama,
+    LlamaCpp,
+    Openai,
+}
+
+/// Network patience. A model may be silent for a long while while it loads or
+/// thinks, so the idle limit is generous; cancelling never waits for it.
+#[derive(Debug, Clone, Copy)]
+pub struct Timeouts {
+    pub connect: Duration,
+    /// Longest silence tolerated while waiting for the response headers or
+    /// the next streamed chunk. `None` waits forever.
+    pub idle: Option<Duration>,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(10),
+            idle: Some(Duration::from_secs(600)),
+        }
+    }
+}
+
+/// How an awaited step ended.
+pub(crate) enum Step<T> {
+    Done(T),
+    Cancelled,
+    TimedOut,
+}
+
+/// Await `fut`, giving up early on cancellation or after `idle` of waiting.
+/// Dropping `fut` closes any connection it owns.
+pub(crate) async fn step<T>(
+    cancel: &CancelToken,
+    idle: Option<Duration>,
+    fut: impl Future<Output = T>,
+) -> Step<T> {
+    let limited = async {
+        match idle {
+            Some(idle) => tokio::time::timeout(idle, fut).await.ok(),
+            None => Some(fut.await),
+        }
+    };
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Step::Cancelled,
+        result = limited => match result {
+            Some(value) => Step::Done(value),
+            None => Step::TimedOut,
+        },
+    }
+}
 
 /// Sampling settings sent with every request.
 #[derive(Debug, Clone, Copy)]
@@ -94,11 +155,13 @@ pub struct Generation {
     pub output_tokens: u32,
     /// Set when we stopped the stream because a client-side budget ran out.
     pub exceeded: Option<Exceeded>,
+    /// Set when the caller cancelled; what arrived before that is kept.
+    pub cancelled: bool,
 }
 
 impl Generation {
     /// Accumulate an event and forward it to `sink`. Empty chunks are ignored.
-    fn record(&mut self, event: Event<'_>, sink: &mut dyn FnMut(Event<'_>)) {
+    fn record(&mut self, event: Event<'_>, sink: &mut (dyn FnMut(Event<'_>) + Send)) {
         match event {
             Event::Thinking(text) if !text.is_empty() => {
                 self.thinking.push_str(text);
@@ -119,6 +182,7 @@ pub fn connect(
     endpoint: LlmEndpoint,
     host: Option<&str>,
     api_key: Option<&str>,
+    timeouts: Timeouts,
 ) -> Result<OpenAiClient> {
     let (label, port, env_host) = match endpoint {
         LlmEndpoint::Ollama => ("ollama", Some(11434), std::env::var("OLLAMA_HOST").ok()),
@@ -132,7 +196,7 @@ pub fn connect(
             "--endpoint openai has no default address; pass --host or set NIX_LOG_DIFF_ANALYZER_LLM_HOST"
         ),
     };
-    OpenAiClient::new(label, &raw, port, api_key)
+    OpenAiClient::new(label, &raw, port, api_key, timeouts)
 }
 
 #[cfg(test)]
@@ -196,8 +260,14 @@ mod tests {
         generation.record(Event::Thinking(""), &mut sink);
         generation.record(Event::Content("b"), &mut sink);
         generation.record(Event::Content(""), &mut sink);
-        assert_eq!((generation.thinking_tokens, generation.output_tokens), (1, 1));
-        assert_eq!((generation.thinking.as_str(), generation.content.as_str()), ("a", "b"));
+        assert_eq!(
+            (generation.thinking_tokens, generation.output_tokens),
+            (1, 1)
+        );
+        assert_eq!(
+            (generation.thinking.as_str(), generation.content.as_str()),
+            ("a", "b")
+        );
         assert_eq!(seen, 2);
     }
 }

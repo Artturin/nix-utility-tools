@@ -1,22 +1,36 @@
-//! Glue: read the diff, pick a model, run the LLM, report the verdict.
+//! Terminal front end: read the diff, pick a model, run the LLM, print the
+//! verdict.
 
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use dialoguer::FuzzySelect;
 
+use nix_log_diff_analyzer::llm::{
+    self, Event, Exceeded, Generation, Limits, OpenAiClient, Sampling, Timeouts,
+};
+use nix_log_diff_analyzer::parse::Verdict;
+use nix_log_diff_analyzer::{CancelToken, analyze, prompt};
+
 use crate::cli::Cli;
-use crate::llm::{self, Event, Exceeded, Generation, Limits, OpenAiClient, Sampling};
 use crate::logging::{self, GREY, YELLOW};
 use crate::outcome::Outcome;
-use crate::parse::{self, Verdict};
-use crate::prompt;
 
-pub fn run(cli: &Cli) -> Result<Outcome> {
+pub async fn run(cli: &Cli, cancel: &CancelToken) -> Result<Outcome> {
     let diff = read_diff(cli.diff_file.as_deref())?;
-    let client = llm::connect(cli.endpoint, cli.host.as_deref(), cli.api_key.as_deref())?;
+    let timeouts = Timeouts {
+        idle: (cli.idle_timeout > 0).then(|| Duration::from_secs(cli.idle_timeout)),
+        ..Timeouts::default()
+    };
+    let client = llm::connect(
+        cli.endpoint.into(),
+        cli.host.as_deref(),
+        cli.api_key.as_deref(),
+        timeouts,
+    )?;
 
     if cli.dry_run {
         log::info!(
@@ -28,7 +42,9 @@ pub fn run(cli: &Cli) -> Result<Outcome> {
         return Ok(Outcome::DryRun);
     }
 
-    let model = resolve_model(cli.model.as_deref(), &client)?;
+    let Some(model) = resolve_model(cli.model.as_deref(), &client, cancel).await? else {
+        return Ok(Outcome::Cancelled);
+    };
     let limits = Limits {
         thinking: cli.max_thinking_tokens,
         output: cli.max_output_tokens,
@@ -37,37 +53,45 @@ pub fn run(cli: &Cli) -> Result<Outcome> {
     log::info!(
         "Analyzing diff via {} ({})...",
         client.name(),
-        if cli.show_thinking { "streaming live" } else { "silently in background" }
+        if cli.show_thinking {
+            "streaming live"
+        } else {
+            "silently in background"
+        }
     );
-    let sampling = Sampling::for_endpoint(cli.endpoint);
-    let generation = generate(&client, &model, &prompt::build(&diff), &sampling, &limits, cli.show_thinking)?;
-    Ok(report(&generation))
-}
+    let sampling = Sampling::for_endpoint(cli.endpoint.into());
 
-/// Run the model, streaming its thinking trace to stderr when `show_thinking`.
-fn generate(
-    client: &OpenAiClient,
-    model: &str,
-    prompt: &str,
-    sampling: &Sampling,
-    limits: &Limits,
-    show_thinking: bool,
-) -> Result<Generation> {
+    // Stream the thinking trace to stderr when asked.
     let mut thinking = ThinkingPrinter::default();
     let result = {
         let mut on_event = |event: Event<'_>| {
-            if show_thinking {
+            if cli.show_thinking {
                 thinking.handle(event);
             }
         };
-        client.generate(model, prompt, sampling, limits, &mut on_event)
+        analyze(
+            &client,
+            &model,
+            &diff,
+            &sampling,
+            &limits,
+            cancel,
+            &mut on_event,
+        )
+        .await
     };
     thinking.finish(); // reset colour even when generation failed
-    result
+    let analysis = result?;
+
+    if analysis.generation.cancelled {
+        log::warn!("Cancelled.");
+        return Ok(Outcome::Cancelled);
+    }
+    Ok(report(&analysis.generation, analysis.verdict))
 }
 
 /// Turn a finished generation into output for the user and an outcome.
-fn report(generation: &Generation) -> Outcome {
+fn report(generation: &Generation, verdict: Verdict) -> Outcome {
     match generation.exceeded {
         Some(Exceeded::Thinking(limit)) => {
             log::error!(
@@ -84,7 +108,7 @@ fn report(generation: &Generation) -> Outcome {
         None => {}
     }
 
-    match parse::parse(&generation.content) {
+    match verdict {
         Verdict::Inconsequential => {
             logging::success!("Result: Inconsequential changes only (Noise).");
             Outcome::Inconsequential
@@ -128,15 +152,22 @@ fn read_diff(path: Option<&Path>) -> Result<String> {
 }
 
 /// Use the requested model, or ask the server and let the user pick.
-fn resolve_model(requested: Option<&str>, client: &OpenAiClient) -> Result<String> {
+/// `None` means cancelled.
+async fn resolve_model(
+    requested: Option<&str>,
+    client: &OpenAiClient,
+    cancel: &CancelToken,
+) -> Result<Option<String>> {
     if let Some(model) = requested {
-        return Ok(model.to_owned());
+        return Ok(Some(model.to_owned()));
     }
 
-    let mut models = client.list_models()?;
+    let Some(mut models) = client.list_models(cancel).await? else {
+        return Ok(None);
+    };
     match models.len() {
         0 => bail!("{} reports no models; pass --model", client.name()),
-        1 => Ok(models.remove(0)),
+        1 => Ok(Some(models.remove(0))),
         // The picker draws on stderr; without a terminal it would just wait.
         count if !io::stderr().is_terminal() => bail!(
             "{} offers {count} models and there is no terminal to choose from; pass --model or set NIX_LOG_DIFF_ANALYZER_MODEL",
@@ -148,8 +179,10 @@ fn resolve_model(requested: Option<&str>, client: &OpenAiClient) -> Result<Strin
                 .default(0) // otherwise nothing is highlighted and Enter does nothing
                 .items(&models)
                 .interact()
-                .context("could not prompt for a model; pass --model or set NIX_LOG_DIFF_ANALYZER_MODEL")?;
-            Ok(models.swap_remove(index))
+                .context(
+                    "could not prompt for a model; pass --model or set NIX_LOG_DIFF_ANALYZER_MODEL",
+                )?;
+            Ok(Some(models.swap_remove(index)))
         }
     }
 }

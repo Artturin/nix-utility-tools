@@ -1,0 +1,83 @@
+@nix {"action":"start","id":12383163808481280,"level":6,"parent":0,"text":"querying info about missing paths","type":0}
+@nix {"action":"start","fields":["/nix/store/bgfljfdxm22i1a8xvj5hr5narzp6l4rs-fx-bad-1794106502","https://cache.nixos.org"],"id":12383163808481281,"level":4,"parent":0,"text":"querying info about '/nix/store/bgfljfdxm22i1a8xvj5hr5narzp6l4rs-fx-bad-1794106502' on 'https://cache.nixos.org'","type":109}
+@nix {"action":"start","fields":["https://cache.nixos.org/bgfljfdxm22i1a8xvj5hr5narzp6l4rs.narinfo"],"id":12383163808481282,"level":4,"parent":12383163808481281,"text":"downloading 'https://cache.nixos.org/bgfljfdxm22i1a8xvj5hr5narzp6l4rs.narinfo'","type":101}
+@nix {"action":"start","fields":["/nix/store/vxgzrr47qfaipq43l4vfxj33zrfklj9n-fx-ok-1794106502","https://cache.nixos.org"],"id":12383163808481283,"level":4,"parent":0,"text":"querying info about '/nix/store/vxgzrr47qfaipq43l4vfxj33zrfklj9n-fx-ok-1794106502' on 'https://cache.nixos.org'","type":109}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"start","fields":["https://cache.nixos.org/vxgzrr47qfaipq43l4vfxj33zrfklj9n.narinfo"],"id":12383163808481284,"level":4,"parent":12383163808481283,"text":"downloading 'https://cache.nixos.org/vxgzrr47qfaipq43l4vfxj33zrfklj9n.narinfo'","type":101}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481284,"type":105}
+@nix {"action":"stop","id":12383163808481283}
+@nix {"action":"stop","id":12383163808481284}
+@nix {"action":"start","fields":["/nix/store/vxgzrr47qfaipq43l4vfxj33zrfklj9n-fx-ok-1794106502","https://nixpkgs-wayland.cachix.org"],"id":12383163808481285,"level":4,"parent":0,"text":"querying info about '/nix/store/vxgzrr47qfaipq43l4vfxj33zrfklj9n-fx-ok-1794106502' on 'https://nixpkgs-wayland.cachix.org'","type":109}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"start","fields":["https://nixpkgs-wayland.cachix.org/vxgzrr47qfaipq43l4vfxj33zrfklj9n.narinfo"],"id":12383163808481286,"level":4,"parent":12383163808481285,"text":"downloading 'https://nixpkgs-wayland.cachix.org/vxgzrr47qfaipq43l4vfxj33zrfklj9n.narinfo'","type":101}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"result","fields":[3,3,0,0],"id":12383163808481282,"type":105}
+@nix {"action":"stop","id":12383163808481281}
+@nix {"action":"stop","id":12383163808481282}
+@nix {"action":"start","fields":["/nix/store/bgfljfdxm22i1a8xvj5hr5narzp6l4rs-fx-bad-1794106502","https://nixpkgs-wayland.cachix.org"],"id":12383163808481287,"level":4,"parent":0,"text":"querying info about '/nix/store/bgfljfdxm22i1a8xvj5hr5narzp6l4rs-fx-bad-1794106502' on 'https://nixpkgs-wayland.cachix.org'","type":109}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"start","fields":["https://nixpkgs-wayland.cachix.org/bgfljfdxm22i1a8xvj5hr5narzp6l4rs.narinfo"],"id":12383163808481288,"level":4,"parent":12383163808481287,"text":"downloading 'https://nixpkgs-wayland.cachix.org/bgfljfdxm22i1a8xvj5hr5narzp6l4rs.narinfo'","type":101}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481286,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"stop","id":12383163808481285}
+@nix {"action":"stop","id":12383163808481286}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"result","fields":[0,0,0,0],"id":12383163808481288,"type":105}
+@nix {"action":"stop","id":12383163808481287}
+@nix {"action":"stop","id":12383163808481288}
+@nix {"action":"stop","id":12383163808481280}
+@nix {"action":"msg","level":0,"msg":"these 2 derivations will be built:"}
+@nix {"action":"msg","level":0,"msg":"  /nix/store/bayjr3kxg22479gvdcr1651x2hf588x4-fx-bad-1794106502.drv"}
+@nix {"action":"msg","level":0,"msg":"  /nix/store/n9kky3h19rcd5n0y1ra5r63l9f686fy8-fx-ok-1794106502.drv"}

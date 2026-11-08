@@ -21,6 +21,21 @@ pub struct Options {
     pub sort_lines: bool,
 }
 
+impl Default for Options {
+    /// Everything stripped, lines in their original order.
+    fn default() -> Self {
+        Self {
+            strip_timings: true,
+            strip_paths: true,
+            strip_jobs: true,
+            strip_kernel_version: true,
+            strip_progress: true,
+            strip_pids: true,
+            sort_lines: false,
+        }
+    }
+}
+
 struct Rule {
     re: Regex,
     replacement: &'static str,

@@ -1,0 +1,12 @@
+[package]
+name = "nix-utility-common"
+version.workspace = true
+edition.workspace = true
+description = "Shared building blocks for the nix-utility-tools crates: cancellation, notices and child process control"
+
+[dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["signal"] }
+tokio-util = { version = "0.7.20", default-features = false }
+
+[dev-dependencies]
+tempfile = "3.27.0"

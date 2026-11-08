@@ -27,6 +27,9 @@
       # `packages` and the overlay.
       #   description: meta.description
       #   mainProgram: meta.mainProgram, defaults to name
+      #   checkPackages: workspace members whose tests and clippy run in this
+      #                build; defaults to just the crate itself. Library crates
+      #                that have no package of their own are listed here.
       #   extraArgs:   function from pkgs to extra attributes for naersk's
       #                buildPackage (e.g. env vars or native build inputs the
       #                crate needs)
@@ -35,6 +38,7 @@
           name,
           description,
           mainProgram ? name,
+          checkPackages ? [ name ],
           extraArgs ? _: { },
         }:
         pkgs:
@@ -46,6 +50,7 @@
           let
             naersk-lib = callPackage naersk { };
             packageOption = "--package=${name}";
+            checkOptions = map (package: "--package=${package}") checkPackages;
           in
           naersk-lib.buildPackage (
             {
@@ -62,7 +67,7 @@
 
               # naersk only reads the name and version from a root package, not a workspace
               cargoBuildOptions = opts: opts ++ [ packageOption ];
-              cargoTestOptions = opts: opts ++ [ packageOption ];
+              cargoTestOptions = opts: opts ++ checkOptions;
 
               checkInputs = [ rustPackages.clippy ];
               doCheck = true;
@@ -71,7 +76,7 @@
                 x
                 ++ [
                   ''
-                    cargo clippy ${packageOption} --all-features --tests -- \
+                    cargo clippy ${lib.concatStringsSep " " checkOptions} --all-features --tests -- \
                                     -D warnings''
                 ];
 
@@ -88,6 +93,11 @@
       crates = lib.mapAttrs (name: args: mkWorkspaceCrate (args // { inherit name; })) {
         difflog = {
           description = "Compare two Nix build logs, normalizing out boring differences";
+          # nix-utility-common has no package of its own
+          checkPackages = [
+            "difflog"
+            "nix-utility-common"
+          ];
           extraArgs = pkgs: {
             nativeBuildInputs = [ pkgs.makeWrapper ];
             # the integration tests run git diff --no-index
@@ -104,6 +114,36 @@
         diffoscope-nix = {
           description = "Run diffoscope on two Nix store paths, ignoring differences that are only due to differing store path hashes and GNU build IDs";
         };
+        diff-nixpkgs-attr = {
+          description = "Compare nixpkgs attributes against a base revision with difflog and diffoscope-nix";
+          # the core library has no package of its own
+          checkPackages = [
+            "diff-nixpkgs-attr"
+            "diff-nixpkgs-attr-core"
+          ];
+          extraArgs = pkgs: {
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            # the integration tests run git; jq lets the jq-parity test run
+            checkInputs = [
+              pkgs.rustPackages.clippy
+              pkgs.git
+              pkgs.jq
+            ];
+            # difflog and diffoscope-nix run in-process; what is left to run is
+            # diffoscope, git, nix-eval-jobs and the pager. nix itself is left
+            # to the user's setup.
+            postInstall = ''
+              wrapProgram $out/bin/diff-nixpkgs-attr --prefix PATH : ${
+                lib.makeBinPath [
+                  pkgs.diffoscope
+                  pkgs.git
+                  pkgs.less
+                  pkgs.nix-eval-jobs
+                ]
+              }
+            '';
+          };
+        };
         nix-log-diff-analyzer = {
           description = "Ask an LLM (local or OpenAI-compatible remote) whether a diff of two sorted Nix build logs is noise or consequential";
           extraArgs = pkgs: {
@@ -112,59 +152,6 @@
           };
         };
       };
-
-      # diff-nixpkgs-attr with the tools it calls (difflog, diffoscope-nix and
-      # diffoscope) on its PATH. nix itself is left to the user's setup.
-      mkScripts =
-        pkgs: difflog: diffoscope-nix:
-        pkgs.callPackage (
-          {
-            lib,
-            stdenvNoCC,
-            makeWrapper,
-            coreutils,
-            diffoscope,
-            findutils,
-            gawk,
-            git,
-            gnused,
-            jq,
-            less,
-          }:
-          stdenvNoCC.mkDerivation {
-            pname = "diff-nixpkgs-attr";
-            version = workspaceVersion;
-            src = lib.fileset.toSource {
-              root = ./bin;
-              fileset = ./bin/diff-nixpkgs-attr;
-            };
-            nativeBuildInputs = [ makeWrapper ];
-            dontBuild = true;
-            installPhase = ''
-              runHook preInstall
-              install -Dm755 -t $out/bin diff-nixpkgs-attr
-              wrapProgram $out/bin/diff-nixpkgs-attr --prefix PATH : ${
-                lib.makeBinPath [
-                  coreutils
-                  diffoscope
-                  diffoscope-nix
-                  difflog
-                  findutils
-                  gawk
-                  git
-                  gnused
-                  jq
-                  less
-                ]
-              }
-              runHook postInstall
-            '';
-            meta = {
-              description = "Compare nixpkgs attributes against a base revision with difflog and diffoscope-nix";
-              mainProgram = "diff-nixpkgs-attr";
-            };
-          }
-        ) { };
 
       # The crate that `nix build`/`nix run` use without an attribute
       defaultCrate = "nix-log-diff-analyzer";
@@ -178,10 +165,7 @@
         packages = {
           default = self.packages.${system}.${defaultCrate};
         }
-        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates
-        // {
-          diff-nixpkgs-attr = mkScripts pkgs (crates.difflog pkgs) (crates.diffoscope-nix pkgs);
-        };
+        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates;
 
         apps.default = utils.lib.mkApp {
           drv = self.packages.${system}.default;
@@ -204,11 +188,6 @@
       }
     )
     // {
-      overlays.default =
-        final: prev:
-        lib.mapAttrs (_: mkCrate: mkCrate prev) crates
-        // {
-          diff-nixpkgs-attr = mkScripts prev final.difflog final.diffoscope-nix;
-        };
+      overlays.default = final: prev: lib.mapAttrs (_: mkCrate: mkCrate prev) crates;
     };
 }

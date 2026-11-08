@@ -3,18 +3,23 @@
 //! and hosted APIs such as Gemini's. Decoding of the streamed reply lives in
 //! `stream.rs`.
 
+use std::time::Duration;
+
 use anyhow::{Context, Result, anyhow, bail};
-use reqwest::blocking::{Client, RequestBuilder, Response};
+use reqwest::{Client, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::{Event, Generation, Limits, Sampling, stream};
+use nix_utility_common::CancelToken;
+
+use super::{Event, Generation, Limits, Sampling, Step, Timeouts, step, stream};
 
 pub struct OpenAiClient {
     label: &'static str,
     client: Client,
     base: Url,
     api_key: Option<String>,
+    idle: Option<Duration>,
 }
 
 impl OpenAiClient {
@@ -25,16 +30,19 @@ impl OpenAiClient {
         host: &str,
         default_port: Option<u16>,
         api_key: Option<&str>,
+        timeouts: Timeouts,
     ) -> Result<Self> {
         Ok(Self {
             label,
-            // No overall timeout: generations can take minutes.
+            // No overall timeout: generations can take minutes. Silence is
+            // bounded by `Timeouts::idle` instead.
             client: Client::builder()
-                .timeout(None)
+                .connect_timeout(timeouts.connect)
                 .build()
                 .context("building HTTP client")?,
             base: parse_host(host, default_port)?,
             api_key: api_key.map(str::to_owned),
+            idle: timeouts.idle,
         })
     }
 
@@ -48,8 +56,8 @@ impl OpenAiClient {
         format!("{} at {}", self.label, self.base)
     }
 
-    /// Names of the models the server offers.
-    pub fn list_models(&self) -> Result<Vec<String>> {
+    /// Names of the models the server offers; `None` when cancelled.
+    pub async fn list_models(&self, cancel: &CancelToken) -> Result<Option<Vec<String>>> {
         #[derive(Deserialize)]
         struct Models {
             data: Vec<Model>,
@@ -60,31 +68,41 @@ impl OpenAiClient {
         }
 
         let what = format!("listing {} models", self.label);
-        let response = self
-            .authorized(self.client.get(self.url("models")?))
-            .send()
-            .with_context(|| what.clone())?;
-        let models: Models = ensure_success(response)
-            .with_context(|| what.clone())?
-            .json()
-            .with_context(|| format!("invalid model list from {}", self.label))?;
+        let request = self.authorized(self.client.get(self.url("models")?));
+        let models = async {
+            let response = ensure_success(request.send().await?).await?;
+            Ok::<_, anyhow::Error>(response.json::<Models>().await?)
+        };
+        let models = match step(cancel, self.idle, models).await {
+            Step::Done(models) => models.with_context(|| what.clone())?,
+            Step::Cancelled => return Ok(None),
+            Step::TimedOut => bail!("{what}: no answer from {}", self.label),
+        };
         // Some APIs (Gemini) prefix ids with "models/", which they also
         // accept being left off; show the plain name.
-        Ok(models
-            .data
-            .into_iter()
-            .map(|m| m.id.strip_prefix("models/").map_or(m.id.clone(), str::to_owned))
-            .collect())
+        Ok(Some(
+            models
+                .data
+                .into_iter()
+                .map(|m| {
+                    m.id.strip_prefix("models/")
+                        .map_or(m.id.clone(), str::to_owned)
+                })
+                .collect(),
+        ))
     }
 
-    /// Run the prompt, streaming events to `on_event` as they arrive.
-    pub fn generate(
+    /// Run the prompt, streaming events to `on_event` as they arrive. When
+    /// `cancel` fires the connection is dropped and what arrived so far is
+    /// returned with `cancelled` set.
+    pub async fn generate(
         &self,
         model: &str,
         prompt: &str,
         sampling: &Sampling,
         limits: &Limits,
-        on_event: &mut dyn FnMut(Event<'_>),
+        cancel: &CancelToken,
+        on_event: &mut (dyn FnMut(Event<'_>) + Send),
     ) -> Result<Generation> {
         let request = ChatRequest {
             // llama-server serves one model and ignores the field; router
@@ -101,15 +119,35 @@ impl OpenAiClient {
             max_tokens: limits.server_cap(),
         };
 
-        let response = self
+        let send = self
             .authorized(self.client.post(self.url("chat/completions")?))
             .json(&request)
-            .send()
-            .with_context(|| format!("sending chat request to {}", self.label))?;
+            .send();
+        let response = match step(cancel, self.idle, send).await {
+            Step::Done(response) => {
+                response.with_context(|| format!("sending chat request to {}", self.label))?
+            }
+            Step::Cancelled => {
+                return Ok(Generation {
+                    cancelled: true,
+                    ..Generation::default()
+                });
+            }
+            Step::TimedOut => bail!("{} did not start answering in time", self.label),
+        };
         let response = ensure_success(response)
+            .await
             .with_context(|| format!("{} rejected the chat request", self.label))?;
 
-        stream::read_generation(response, self.label, limits, on_event)
+        stream::read_generation(
+            response.bytes_stream(),
+            self.label,
+            limits,
+            self.idle,
+            cancel,
+            on_event,
+        )
+        .await
     }
 
     fn url(&self, path: &str) -> Result<Url> {
@@ -180,12 +218,12 @@ fn parse_host(raw: &str, default_port: Option<u16>) -> Result<Url> {
 }
 
 /// Like `error_for_status`, but keeps the server's error body.
-fn ensure_success(response: Response) -> Result<Response> {
+async fn ensure_success(response: Response) -> Result<Response> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
-    let body = response.text().unwrap_or_default();
+    let body = response.text().await.unwrap_or_default();
     let hint = if status.is_client_error() && body.contains("top_k") {
         "\nhint: this server rejects the non-standard `top_k` option; use --endpoint openai"
     } else {
@@ -210,7 +248,10 @@ mod tests {
     #[test]
     fn explicit_port_is_kept() {
         assert_eq!(host("127.0.0.1:8080"), "http://127.0.0.1:8080/v1/");
-        assert_eq!(host("http://example.org:9000"), "http://example.org:9000/v1/");
+        assert_eq!(
+            host("http://example.org:9000"),
+            "http://example.org:9000/v1/"
+        );
     }
 
     #[test]
@@ -242,7 +283,10 @@ mod tests {
         );
         for raw in ["http://h:1", "http://h:1/v1", "http://h:1/v1/"] {
             let base = parse_host(raw, None).unwrap();
-            assert_eq!(base.join("models").unwrap().as_str(), "http://h:1/v1/models");
+            assert_eq!(
+                base.join("models").unwrap().as_str(),
+                "http://h:1/v1/models"
+            );
         }
     }
 

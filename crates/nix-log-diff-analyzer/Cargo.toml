@@ -9,15 +9,19 @@ anstream = "1.0.0"
 anstyle = "1.0.14"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
+ctrlc = { version = "3.5.2", features = ["termination"] }
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
 env_logger = "0.11.11"
 eventsource-stream = "0.2.3"
-futures = { version = "0.3.34", default-features = false, features = ["std", "executor"] }
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
 log = "0.4.35"
-reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
+nix-utility-common = { path = "../nix-utility-common" }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "rt", "time"] }
 url = "2.5.8"
 
 [dev-dependencies]
 mockito = "1.7.2"
+tokio = { version = "1.54.1", features = ["test-util"] }

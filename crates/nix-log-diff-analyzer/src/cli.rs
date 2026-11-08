@@ -3,12 +3,13 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use nix_log_diff_analyzer::llm::LlmEndpoint;
 
 /// Which LLM server to talk to. All of them speak the OpenAI-compatible API
 /// (`/chat/completions`); the choice sets the default address and whether
 /// non-standard sampling options are sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum LlmEndpoint {
+pub enum Endpoint {
     /// ollama (default address 127.0.0.1:11434)
     Ollama,
     /// llama.cpp `llama-server` (default address 127.0.0.1:8080)
@@ -17,6 +18,16 @@ pub enum LlmEndpoint {
     /// Any other OpenAI-compatible API, e.g. Gemini or OpenAI. Sends only
     /// standard options (strict servers reject others) and needs --host.
     Openai,
+}
+
+impl From<Endpoint> for LlmEndpoint {
+    fn from(endpoint: Endpoint) -> Self {
+        match endpoint {
+            Endpoint::Ollama => Self::Ollama,
+            Endpoint::LlamaCpp => Self::LlamaCpp,
+            Endpoint::Openai => Self::Openai,
+        }
+    }
 }
 
 /// Ask an LLM (local or an OpenAI-compatible remote) whether a diff of two
@@ -43,9 +54,9 @@ pub struct Cli {
         long,
         env = "NIX_LOG_DIFF_ANALYZER_LLM_ENDPOINT",
         value_enum,
-        default_value_t = LlmEndpoint::Ollama
+        default_value_t = Endpoint::Ollama
     )]
-    pub endpoint: LlmEndpoint,
+    pub endpoint: Endpoint,
 
     /// Server address: `host[:port]`, or an API base URL
     ///
@@ -62,14 +73,35 @@ pub struct Cli {
     /// Stop if the model thinks for more than this many tokens [default: no limit]
     ///
     /// Tokens are counted as streamed chunks, which is roughly one per token.
-    #[arg(long, env = "NIX_LOG_DIFF_ANALYZER_MAX_THINKING_TOKENS", value_name = "TOKENS")]
+    #[arg(
+        long,
+        env = "NIX_LOG_DIFF_ANALYZER_MAX_THINKING_TOKENS",
+        value_name = "TOKENS"
+    )]
     pub max_thinking_tokens: Option<u32>,
 
     /// Cut the answer off after this many tokens, thinking not counted [default: no limit]
-    #[arg(long, env = "NIX_LOG_DIFF_ANALYZER_MAX_OUTPUT_TOKENS", value_name = "TOKENS")]
+    #[arg(
+        long,
+        env = "NIX_LOG_DIFF_ANALYZER_MAX_OUTPUT_TOKENS",
+        value_name = "TOKENS"
+    )]
     pub max_output_tokens: Option<u32>,
 
     /// Bearer token for servers that require one (llama-server --api-key)
-    #[arg(long, env = "NIX_LOG_DIFF_ANALYZER_LLM_API_KEY", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "NIX_LOG_DIFF_ANALYZER_LLM_API_KEY",
+        hide_env_values = true
+    )]
     pub api_key: Option<String>,
+
+    /// Give up when the server is silent for this many seconds (0 = never)
+    #[arg(
+        long,
+        env = "NIX_LOG_DIFF_ANALYZER_IDLE_TIMEOUT",
+        value_name = "SECONDS",
+        default_value_t = 600
+    )]
+    pub idle_timeout: u64,
 }
