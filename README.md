@@ -5,6 +5,8 @@ Here are tools which I use to review nixpkgs packages, mainly to diff package ou
 - `diff-nixpkgs-attr`: builds nixpkgs attributes at the current and base
   revisions, then compares changed outputs and build logs.
   including `diffoscope-nix` and `diffoscope`
+  The differences found are also saved as plain text in
+  `$PWD/differences-ATTRS-BRANCH-SHORTREV/FULL-ATTRPATH/{difflog,diffoscope/OUTPUT}`.
 - `difflog`: normalizes two Nix build logs before diffing them to hide common
   nondeterministic differences.
 - `diffoscope-nix`: runs diffoscope on two Nix store

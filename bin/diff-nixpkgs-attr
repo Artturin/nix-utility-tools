@@ -80,6 +80,13 @@ Usage: diff-nixpkgs-attr [options] ATTR...
       --pause     also wait for Enter between packages (q quits)
   -h, --help      show this help
 
+Differences are also saved (without colour) under
+  $PWD/differences-ATTRS-BRANCH-SHORTREV/FULL-ATTRPATH/
+    difflog             the build log diff
+    diffoscope/OUTPUT   the diffoscope-nix output, one file per output
+ATTRS is the attributes given, joined with "+"; BRANCH and SHORTREV are those
+of the working tree. Nothing is saved when no differences are found.
+
 Environment:
   SYSTEM   system to evaluate for      (default: x86_64-linux)
   WORKERS  nix-eval-jobs worker count  (default: 4)
@@ -138,6 +145,18 @@ for a in "$@"; do
         attrs+=("$n")
     fi
 done
+
+# Replace anything that is awkward in a file name.
+sanitize() {
+    local s=${1//[^A-Za-z0-9._+-]/-}
+    printf '%s' "${s:0:100}"
+}
+
+# Where the differences are saved; only created once one is found.
+branch=$(git branch --show-current)
+printf -v attrs_joined '%s+' "${attrs[@]}"
+LOG_DIR="$PWD/differences-$(sanitize "${attrs_joined%+}")-$(sanitize "${branch:-detached}")-$(git rev-parse --short HEAD)"
+LOG_SAVED=0
 
 cd "$(git rev-parse --show-toplevel)"
 BASE_REV=$(git rev-parse "${BASE_REV:-$(git merge-base master HEAD)}")
@@ -292,9 +311,7 @@ print_pair() { # OLD NEW
 }
 
 # What difflog and diffoscope-nix reported. Both exit 1 when they find
-# differences; any other non-zero status is a tool error. The exception is 141
-# from diffoscope-nix: the pager was quit before it finished writing, which
-# only happens when there is output, so it counts as a difference.
+# differences; any other non-zero status is a tool error.
 diff_order=()   # attrs with differences, in the order they were checked
 declare -A difflog_found=() diffoscope_outs=()   # attr -> 1 / attr -> "out,dev"
 STOPPED=0
@@ -303,6 +320,25 @@ mark_diff() { # ATTR
     if [[ -z ${difflog_found[$1]:-} && -z ${diffoscope_outs[$1]:-} ]]; then
         diff_order+=("$1")
     fi
+}
+
+# Remove the logs a previous run left for ATTR, so only this run's remain.
+reset_logs() { # ATTR
+    rm -rf -- "${LOG_DIR:?}/$1"
+}
+
+# difflog is run again for the log: with stdout on the terminal git can colour
+# and page its output, which a pipe into tee would turn off.
+save_difflog() { # ATTR OLD NEW
+    mkdir -p "$LOG_DIR/$1"
+    LOG_SAVED=1
+    difflog --sort-lines "$2" "$3" -U0 --no-color > "$LOG_DIR/$1/difflog" 2>/dev/null || true
+}
+
+save_diffoscope() { # ATTR OUTPUT RAWFILE
+    mkdir -p "$LOG_DIR/$1/diffoscope"
+    LOG_SAVED=1
+    sed $'s/\033\\[[0-9;]*m//g' "$3" > "$LOG_DIR/$1/diffoscope/$2"
 }
 
 show_diffs() { # CHANGED_FILE
@@ -320,11 +356,12 @@ show_diffs() { # CHANGED_FILE
             first=0
             prev=$attr
             printf '\n%s\n' "$(paint 1 "$S_PKG" " $attr ")"
+            reset_logs "$attr"
             rc=0
             difflog --sort-lines "$old" "$new" -U0 || rc=$?
             case $rc in
                 0) ;;
-                1) mark_diff "$attr"; difflog_found[$attr]=1 ;;
+                1) mark_diff "$attr"; difflog_found[$attr]=1; save_difflog "$attr" "$old" "$new" ;;
                 *) warn "difflog exited with status $rc for $attr" ;;
             esac
         fi
@@ -335,12 +372,16 @@ show_diffs() { # CHANGED_FILE
             continue
         fi
         rc=0
-        diffoscope-nix "$old" "$new" | "${pager[@]}" || rc=${PIPESTATUS[0]}
+        # The whole output is kept even if the pager is quit early: what the
+        # pager leaves unread is drained, so diffoscope-nix never gets SIGPIPE.
+        diffoscope-nix "$old" "$new" | tee "$work/diffoscope.raw" \
+            | { "${pager[@]}" || true; cat > /dev/null; } || rc=${PIPESTATUS[0]}
         case $rc in
             0) ;;
-            1|141)
+            1)
                 mark_diff "$attr"
                 diffoscope_outs[$attr]+="${diffoscope_outs[$attr]:+,}$out"
+                save_diffoscope "$attr" "$out" "$work/diffoscope.raw"
                 ;;
             *) warn "diffoscope-nix exited with status $rc for $attr [$out]" ;;
         esac
@@ -369,6 +410,9 @@ print_summary() {
             printf -v padded '%-*s' "$width" "$attr"
             printf '  %s  %s\n' "$(paint 1 "$S_OUT" "$padded")" "$(paint 2 "$S_OUTNAME" "${s%, }")"
         done
+    fi
+    if ((LOG_SAVED)); then
+        printf '%s %s\n' "$(paint 1 "$S_OK" 'Differences saved to:')" "$LOG_DIR"
     fi
     if ((STOPPED)); then
         printf '%s\n' "$(paint 2 "$S_DIM" '(stopped early: later attributes were not checked)')"
