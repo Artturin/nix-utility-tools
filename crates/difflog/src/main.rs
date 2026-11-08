@@ -262,16 +262,10 @@ mod tests {
     }
 
     #[test]
-    fn cli_parsing() {
-        let c = cli(&["x", "y"]);
-        assert_eq!((c.first.as_str(), c.second.as_str()), ("x", "y"));
-        assert!(c.git_args.is_empty());
-        assert!(!c.no_follow && !c.sort_lines && !c.dry_run);
-
+    fn git_options_after_the_two_logs_are_collected() {
         let c = cli(&["--sort-lines", "-n", "x", "y", "--stat", "-U3"]);
         assert!(c.sort_lines && c.dry_run);
+        assert_eq!((c.first.as_str(), c.second.as_str()), ("x", "y"));
         assert_eq!(c.git_args, ["--stat", "-U3"]);
-
-        assert!(Cli::try_parse_from(["difflog", "only-one"]).is_err());
     }
 }

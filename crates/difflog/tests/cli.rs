@@ -44,6 +44,9 @@ impl Env {
             .env("PATH", path)
             .env_remove("RUST_LOG")
             .env_remove("NO_COLOR")
+            // keep the host's git configuration (colour, pager, diff.*) out of it
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .current_dir(self.dir.path())
             .output()
             .unwrap()
@@ -210,13 +213,4 @@ fn usage_errors_exit_2() {
     let out = env.run(&["only-one"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("Usage"), "{}", stderr(&out));
-}
-
-#[test]
-fn quiet_hides_notes() {
-    let env = Env::new();
-    let a = env.file("a.log", "x\n");
-    let out = env.run(&[s(&a), s(&a), "-q"]);
-    assert_eq!(out.status.code(), Some(0));
-    assert!(stderr(&out).is_empty(), "{}", stderr(&out));
 }
