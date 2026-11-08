@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Nix utility tools
+Comment=Compare nixpkgs attributes against a base revision with difflog and diffoscope
+Exec=nix-utility-gui
+Icon=text-x-patch
+Terminal=false
+Categories=Development;
+Keywords=nix;nixpkgs;diff;diffoscope;

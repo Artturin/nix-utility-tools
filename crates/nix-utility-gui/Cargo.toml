@@ -1,0 +1,18 @@
+[package]
+name = "nix-utility-gui"
+version.workspace = true
+edition.workspace = true
+description = "GTK4 front end for comparing nixpkgs attributes with difflog and diffoscope-nix"
+
+[dependencies]
+diff-nixpkgs-attr-core = { version = "0.1.0", path = "../diff-nixpkgs-attr-core" }
+directories = "6.0.0"
+env_logger = "0.11.11"
+log = "0.4.35"
+relm4 = { version = "0.11.0", features = ["libadwaita", "gnome_48"] }
+serde = { version = "1.0.229", features = ["derive"] }
+sourceview5 = "0.11.2"
+toml = "1.2.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

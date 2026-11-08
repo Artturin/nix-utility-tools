@@ -12,9 +12,22 @@ use std::path::{Path, PathBuf};
 use crate::attr::path_component;
 use crate::text::SgrStripper;
 
+/// Where the build log diff of `attr` is saved under `dir`.
+pub fn difflog_path(dir: &Path, attr: &str) -> PathBuf {
+    dir.join(path_component(attr)).join("difflog")
+}
+
+/// Where the diffoscope output of `output` of `attr` is saved under `dir`.
+pub fn diffoscope_path(dir: &Path, attr: &str, output: &str) -> PathBuf {
+    dir.join(path_component(attr))
+        .join("diffoscope")
+        .join(path_component(output))
+}
+
 pub(crate) struct Saver {
     dir: PathBuf,
     created: bool,
+    announced: bool,
 }
 
 impl Saver {
@@ -22,6 +35,7 @@ impl Saver {
         Self {
             dir,
             created: false,
+            announced: false,
         }
     }
 
@@ -32,6 +46,13 @@ impl Saver {
     /// Whether anything has been saved.
     pub fn used(&self) -> bool {
         self.created
+    }
+
+    /// True once after the first successful save, so it is reported once.
+    pub fn first_save(&mut self) -> bool {
+        let first = self.created && !self.announced;
+        self.announced |= self.created;
+        first
     }
 
     fn attr_dir(&self, attr: &str) -> PathBuf {
@@ -47,18 +68,18 @@ impl Saver {
     }
 
     pub fn difflog(&mut self, attr: &str, diff: &[u8]) -> io::Result<()> {
-        let dir = self.attr_dir(attr);
-        fs::create_dir_all(&dir)?;
+        let path = difflog_path(&self.dir, attr);
+        fs::create_dir_all(path.parent().expect("has a parent"))?;
         self.created = true;
-        fs::write(dir.join("difflog"), diff)
+        fs::write(path, diff)
     }
 
     /// Save the raw diffoscope output in `raw`, with colours removed.
     pub fn diffoscope(&mut self, attr: &str, output: &str, raw: &Path) -> io::Result<()> {
-        let dir = self.attr_dir(attr).join("diffoscope");
-        fs::create_dir_all(&dir)?;
+        let path = diffoscope_path(&self.dir, attr, output);
+        fs::create_dir_all(path.parent().expect("has a parent"))?;
         self.created = true;
-        let mut out = BufWriter::new(File::create(dir.join(path_component(output)))?);
+        let mut out = BufWriter::new(File::create(path)?);
         let mut input = BufReader::new(File::open(raw)?);
         let mut stripper = SgrStripper::default();
         let (mut buf, mut clean) = ([0u8; 64 * 1024], Vec::new());
@@ -102,6 +123,11 @@ mod tests {
         );
         assert!(base.join("diffoscope/.._evil").exists());
         assert!(saver.used());
+        assert_eq!(difflog_path(saver.dir(), "set.a"), base.join("difflog"));
+        assert_eq!(
+            diffoscope_path(saver.dir(), "set.a", "out"),
+            base.join("diffoscope/out")
+        );
 
         saver.reset("set.a").unwrap();
         assert!(!base.exists());

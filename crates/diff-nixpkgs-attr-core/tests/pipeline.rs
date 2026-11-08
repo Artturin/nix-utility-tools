@@ -197,6 +197,13 @@ printf '\033[31m'; diff -r --no-dereference "$before" "$last"; rc=$?; printf '\0
         "colours must not be saved: {diffoscope:?}"
     );
 
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Saved(dir) if *dir == saved))
+            .count(),
+        1
+    );
     let statuses: Vec<_> = events
         .iter()
         .filter_map(|e| match e {

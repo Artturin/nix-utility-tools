@@ -27,6 +27,7 @@
       # `packages` and the overlay.
       #   description: meta.description
       #   mainProgram: meta.mainProgram, defaults to name
+      #   platforms:   meta.platforms, unrestricted when left out
       #   checkPackages: workspace members whose tests and clippy run in this
       #                build; defaults to just the crate itself. Library crates
       #                that have no package of their own are listed here.
@@ -38,6 +39,7 @@
           name,
           description,
           mainProgram ? name,
+          platforms ? null,
           checkPackages ? [ name ],
           extraArgs ? _: { },
         }:
@@ -82,7 +84,8 @@
 
               meta = {
                 inherit description mainProgram;
-              };
+              }
+              // lib.optionalAttrs (platforms != null) { inherit platforms; };
             }
             // extraArgs pkgs
           )
@@ -153,6 +156,47 @@
         };
       };
 
+      # The graphical front end needs GTK, so it is only exposed on Linux.
+      linuxCrates = lib.mapAttrs (name: args: mkWorkspaceCrate (args // { inherit name; })) {
+        nix-utility-gui = {
+          description = "GTK front end for comparing nixpkgs attributes with difflog and diffoscope-nix";
+          platforms = lib.platforms.linux;
+          extraArgs = pkgs: {
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.wrapGAppsHook4
+            ];
+            buildInputs = [
+              pkgs.gtk4
+              pkgs.libadwaita
+              pkgs.gtksourceview5
+              # schemas for the file chooser
+              pkgs.gsettings-desktop-schemas
+            ];
+            # the tests are widget-free and need no display
+            preFixup = ''
+              gappsWrapperArgs+=(--prefix PATH : ${
+                lib.makeBinPath [
+                  pkgs.diffoscope
+                  pkgs.git
+                  pkgs.nix-eval-jobs
+                ]
+              })
+            '';
+            postInstall = ''
+              install -Dm644 ${./crates/nix-utility-gui/data/io.github.artturin.NixUtilityGui.desktop} \
+                $out/share/applications/io.github.artturin.NixUtilityGui.desktop
+            '';
+          };
+        };
+      };
+
+      packagesFor =
+        pkgs:
+        lib.mapAttrs (_: mkCrate: mkCrate pkgs) (
+          crates // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux linuxCrates
+        );
+
       # The crate that `nix build`/`nix run` use without an attribute
       defaultCrate = "nix-log-diff-analyzer";
     in
@@ -165,7 +209,7 @@
         packages = {
           default = self.packages.${system}.${defaultCrate};
         }
-        // lib.mapAttrs (_: mkCrate: mkCrate pkgs) crates;
+        // packagesFor pkgs;
 
         apps.default = utils.lib.mkApp {
           drv = self.packages.${system}.default;
@@ -180,14 +224,28 @@
               rustc
               rustfmt
               rustPackages.clippy
+              pkg-config
+            ];
+            buildInputs = [
+              gtk4
+              libadwaita
+              gtksourceview5
             ];
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
+            # GTK looks for the GSettings schemas on XDG_DATA_DIRS
+            shellHook = ''
+              export XDG_DATA_DIRS="$XDG_DATA_DIRS:${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}:${gtk4}/share/gsettings-schemas/${gtk4.name}"
+            '';
           };
 
         formatter = pkgs.nixfmt-tree;
       }
     )
     // {
-      overlays.default = final: prev: lib.mapAttrs (_: mkCrate: mkCrate prev) crates;
+      overlays.default =
+        final: prev:
+        lib.mapAttrs (_: mkCrate: mkCrate prev) (
+          crates // lib.optionalAttrs prev.stdenv.hostPlatform.isLinux linuxCrates
+        );
     };
 }

@@ -13,6 +13,15 @@ Here are tools which I use to review nixpkgs packages, mainly to diff package ou
   restarts one that grows too large. `--memory-max SIZE` caps each diffoscope
   run (needs `systemd-run --user`), and `--timeout SECONDS` limits every
   external command. Ctrl-C stops the running command and cleans up.
+- `nix-utility-gui` (Linux, GTK 4 and libadwaita): the same comparison in a
+  window. Fill in the nixpkgs checkout and attributes, press Run, and browse the
+  changed packages: each output has a tab, build logs are shown as a highlighted
+  diff, and diffoscope output keeps its colours. Settings are remembered, a
+  running comparison can be cancelled, and a saved `differences-…` directory
+  can be opened again with the folder button. Results are saved in the chosen
+  directory, by default the nixpkgs checkout. Outputs over 4 MiB are cut off
+  on screen, with a button to open the whole saved file. `nix` must be on
+  `PATH`; the flake package provides `diffoscope`, `git` and `nix-eval-jobs`.
 - `difflog`: normalizes two Nix build logs before diffing them to hide common
   nondeterministic differences.
 - `diffoscope-nix`: runs diffoscope on two Nix store

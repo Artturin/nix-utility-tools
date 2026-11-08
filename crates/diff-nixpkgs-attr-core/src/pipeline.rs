@@ -702,9 +702,13 @@ fn run_difflog(
 }
 
 /// Report a saving problem and carry on.
-fn save(cx: &Cx<'_>, saver: &Saver, attr: &str, result: io::Result<()>) {
+fn save(cx: &Cx<'_>, saver: &mut Saver, attr: &str, result: io::Result<()>) {
     match result {
-        Ok(()) => {}
+        Ok(()) => {
+            if saver.first_save() {
+                cx.em.emit(Event::Saved(saver.dir().to_owned()));
+            }
+        }
         Err(err) => cx.em.notice(Notice::warn(
             TOOL,
             format!(
