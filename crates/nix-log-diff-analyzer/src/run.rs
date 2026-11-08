@@ -87,6 +87,14 @@ pub async fn run(cli: &Cli, cancel: &CancelToken) -> Result<Outcome> {
         log::warn!("Cancelled.");
         return Ok(Outcome::Cancelled);
     }
+    // Without a request for usage (the openai endpoint) "unverified" is the
+    // expected state and not worth repeating on every run.
+    let expected_usage = sampling.include_usage;
+    if (expected_usage || analysis.prompt_check.unreliable())
+        && let Some(warning) = analysis.prompt_check.warning()
+    {
+        log::warn!("{warning}");
+    }
     Ok(report(&analysis.generation, analysis.verdict))
 }
 

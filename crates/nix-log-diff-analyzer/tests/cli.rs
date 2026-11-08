@@ -291,6 +291,66 @@ fn sampling_options_and_combined_cap_are_sent() {
 }
 
 #[test]
+fn usage_is_requested_from_local_servers_but_not_from_the_openai_endpoint() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .match_body(Matcher::PartialJson(
+            json!({ "stream_options": { "include_usage": true } }),
+        ))
+        .with_status(200)
+        .with_body(sse(&[delta(json!({ "content": "False" }))]))
+        .create();
+    assert_eq!(analyze(&server, &[]).code, 0);
+    mock.assert();
+
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .match_request(|r| {
+            let body: Value = serde_json::from_slice(r.body().unwrap()).unwrap();
+            body.get("stream_options").is_none()
+        })
+        .with_status(200)
+        .with_body(sse(&[delta(json!({ "content": "False" }))]))
+        .create();
+    assert_eq!(analyze(&server, &["--endpoint", "openai"]).code, 0);
+    mock.assert();
+}
+
+#[test]
+fn a_prompt_the_server_cut_short_is_warned_about() {
+    let mut server = Server::new();
+    chat(
+        &mut server,
+        &[
+            delta(json!({ "content": "False" })),
+            json!({ "choices": [], "usage": { "prompt_tokens": 100, "completion_tokens": 1 } }),
+        ],
+    );
+    let big = "+line of build log output\n".repeat(2000);
+
+    let result = run(
+        &[
+            "--endpoint",
+            "ollama",
+            "--host",
+            &server.url(),
+            "--model",
+            "m",
+        ],
+        &big,
+    );
+
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    assert!(
+        result.stderr.contains("read only 100 prompt tokens"),
+        "{}",
+        result.stderr
+    );
+}
+
+#[test]
 fn the_prompt_contains_the_diff() {
     let mut server = Server::new();
     let mock = server

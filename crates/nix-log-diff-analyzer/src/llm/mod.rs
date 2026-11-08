@@ -85,6 +85,9 @@ pub struct Sampling {
     /// endpoint doesn't document it and likely ignores it; strict servers
     /// such as Gemini's reject it, so it's `None` for `--endpoint openai`.
     pub top_k: Option<u32>,
+    /// Ask the server to report token usage in the stream (`stream_options`).
+    /// Only sent to servers known to accept it; hosted APIs may reject it.
+    pub include_usage: bool,
 }
 
 impl Sampling {
@@ -96,6 +99,7 @@ impl Sampling {
                 LlmEndpoint::Ollama | LlmEndpoint::LlamaCpp => Some(10),
                 LlmEndpoint::Openai => None,
             },
+            include_usage: matches!(endpoint, LlmEndpoint::Ollama | LlmEndpoint::LlamaCpp),
         }
     }
 }
@@ -153,6 +157,9 @@ pub struct Generation {
     /// Streamed chunks received, roughly one per token.
     pub thinking_tokens: u32,
     pub output_tokens: u32,
+    /// Prompt tokens the server says it read, when it reports usage. Servers
+    /// that cut an oversized prompt to their context report the cut size.
+    pub prompt_tokens: Option<u32>,
     /// Set when we stopped the stream because a client-side budget ran out.
     pub exceeded: Option<Exceeded>,
     /// Set when the caller cancelled; what arrived before that is kept.

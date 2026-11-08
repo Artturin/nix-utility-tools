@@ -56,6 +56,12 @@ impl OpenAiClient {
         format!("{} at {}", self.label, self.base)
     }
 
+    /// Scheme, host and port only: safe to show or save, unlike the URL which
+    /// may carry credentials.
+    pub fn origin(&self) -> String {
+        origin(&self.base)
+    }
+
     /// Names of the models the server offers; `None` when cancelled.
     pub async fn list_models(&self, cancel: &CancelToken) -> Result<Option<Vec<String>>> {
         #[derive(Deserialize)]
@@ -117,6 +123,9 @@ impl OpenAiClient {
             top_p: sampling.top_p,
             top_k: sampling.top_k,
             max_tokens: limits.server_cap(),
+            stream_options: sampling.include_usage.then_some(StreamOptions {
+                include_usage: true,
+            }),
         };
 
         let send = self
@@ -177,6 +186,13 @@ struct ChatRequest<'a> {
     top_k: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<StreamOptions>,
+}
+
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Serialize)]
@@ -217,6 +233,14 @@ fn parse_host(raw: &str, default_port: Option<u16>) -> Result<Url> {
     Ok(url)
 }
 
+fn origin(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
+    }
+}
+
 /// Like `error_for_status`, but keeps the server's error body.
 async fn ensure_success(response: Response) -> Result<Response> {
     let status = response.status();
@@ -238,6 +262,16 @@ mod tests {
 
     fn host(raw: &str) -> String {
         parse_host(raw, Some(11434)).unwrap().to_string()
+    }
+
+    #[test]
+    fn origin_drops_credentials_path_and_query() {
+        let url = parse_host("https://user:secret@example.org:9000/api?token=abc", None).unwrap();
+        assert_eq!(origin(&url), "https://example.org:9000");
+        assert_eq!(
+            origin(&parse_host("localhost", Some(11434)).unwrap()),
+            "http://localhost:11434"
+        );
     }
 
     #[test]

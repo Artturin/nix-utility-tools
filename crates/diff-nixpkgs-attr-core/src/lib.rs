@@ -19,5 +19,5 @@ pub use event::{Collected, Event, Flow, Level, Notice, Side, Stage, Tool, ToolSt
 pub use nix_utility_common::CancelToken;
 pub use nix_utility_common::process::{Control, ProcessPolicy, SystemdRun};
 pub use pipeline::{Config, Error, Report, Status, SummaryEntry, run_pipeline};
-pub use save::{difflog_path, diffoscope_path};
+pub use save::{analysis_path, difflog_path, diffoscope_path};
 pub use text::{LineBuffer, strip_sgr};

@@ -65,6 +65,10 @@ where
             bail!("{label} error: {error}");
         }
 
+        if let Some(tokens) = chunk.usage.and_then(|usage| usage.prompt_tokens) {
+            generation.prompt_tokens = Some(tokens);
+        }
+
         for choice in chunk.choices {
             if choice.finish_reason.is_some() {
                 generation.finish_reason = choice.finish_reason;
@@ -95,6 +99,15 @@ struct Chunk {
     choices: Vec<Choice>,
     #[serde(default)]
     error: Option<serde_json::Value>,
+    /// Sent in the last chunk when usage was requested.
+    #[serde(default)]
+    usage: Option<Usage>,
+}
+
+#[derive(Deserialize)]
+struct Usage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -175,6 +188,22 @@ mod tests {
                 r#"Content("True")"#
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn records_the_prompt_tokens_the_server_reports() {
+        let body = [
+            event(r#"{"content":"True"}"#),
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4096,\"completion_tokens\":1}}\n\n"
+                .into(),
+            "data: [DONE]\n\n".into(),
+        ]
+        .concat();
+        let (result, _) = run(&body, Limits::default()).await;
+        assert_eq!(result.unwrap().prompt_tokens, Some(4096));
+
+        let (result, _) = run(&event(r#"{"content":"x"}"#), Limits::default()).await;
+        assert_eq!(result.unwrap().prompt_tokens, None);
     }
 
     #[tokio::test]

@@ -3,6 +3,7 @@
 //! ```text
 //! DIR/ATTR/difflog              the build log diff
 //! DIR/ATTR/diffoscope/OUTPUT    the diffoscope-nix output
+//! DIR/ATTR/analysis             the LLM verdict (written by the GUI)
 //! ```
 
 use std::fs::{self, File};
@@ -15,6 +16,11 @@ use crate::text::SgrStripper;
 /// Where the build log diff of `attr` is saved under `dir`.
 pub fn difflog_path(dir: &Path, attr: &str) -> PathBuf {
     dir.join(path_component(attr)).join("difflog")
+}
+
+/// Where the LLM analysis of `attr` is saved under `dir`.
+pub fn analysis_path(dir: &Path, attr: &str) -> PathBuf {
+    dir.join(path_component(attr)).join("analysis")
 }
 
 /// Where the diffoscope output of `output` of `attr` is saved under `dir`.
