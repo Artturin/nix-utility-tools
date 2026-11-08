@@ -173,6 +173,8 @@
               # schemas for the file chooser
               pkgs.gsettings-desktop-schemas
             ];
+            # the tests' HTTP client loads system CA certificates, even for plain http
+            SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
             # the tests are widget-free and need no display
             preFixup = ''
               gappsWrapperArgs+=(--prefix PATH : ${
