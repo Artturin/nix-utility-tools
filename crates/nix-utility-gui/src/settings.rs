@@ -1,6 +1,7 @@
 //! What the user configures. Saved as TOML under the XDG config directory;
 //! nothing secret lives here.
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -67,6 +68,16 @@ impl Settings {
             }),
             Err(_) => Self::default(),
         }
+    }
+
+    /// When started from a terminal, the shell's directory is the checkout.
+    pub fn with_launch_dir(mut self) -> Self {
+        if std::io::stdin().is_terminal()
+            && let Ok(dir) = std::env::current_dir()
+        {
+            self.repo = dir.to_string_lossy().into_owned();
+        }
+        self
     }
 
     pub fn save(&self) -> std::io::Result<()> {

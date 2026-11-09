@@ -363,7 +363,7 @@ impl SimpleComponent for App {
         window: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let settings = Settings::load();
+        let settings = Settings::load().with_launch_dir();
         let missing = Preflight::check().missing(settings.dry_run);
         let (form, form_widget) = Form::new(&window, &settings);
 
