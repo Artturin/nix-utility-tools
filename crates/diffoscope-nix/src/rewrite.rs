@@ -4,59 +4,55 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use nix_utility_common::store::{HASH_CHAR, HASH_CHAR_UPPER, HASH_LEN, PLACEHOLDER};
 use regex::bytes::{Captures, Regex};
 
-/// The nixbase32 alphabet (no e, o, u, t), so a placeholder of `e`s can never
-/// match again.
-const HASH: &str = "[0-9a-df-np-sv-z]{32}";
-const HASH_UPPER: &str = "[0-9A-DF-NP-SV-Z]{32}";
-
-const PLACEHOLDER: &[u8] = b"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-const PLACEHOLDER_UPPER: &[u8] = b"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
+/// [`PLACEHOLDER`] upper-cased; `E` is not in the upper-cased alphabet either.
+const PLACEHOLDER_UPPER: &str = "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
 
 fn regex(pattern: String) -> Regex {
     Regex::new(&format!("(?-u){pattern}")).expect("valid regex")
 }
 
-static STORE: LazyLock<Regex> = LazyLock::new(|| regex(format!("/nix/store/{HASH}")));
+static STORE: LazyLock<Regex> =
+    LazyLock::new(|| regex(format!("/nix/store/{HASH_CHAR}{{{HASH_LEN}}}")));
 
 // Some builds embed the path upper-cased (e.g. "/nix/store/RJXGV8QS...-qtbase"
 // in the assert strings of a Qt debug build). The placeholder is upper-cased
 // too, so a case change between the builds would still show up.
-static STORE_UPPER: LazyLock<Regex> = LazyLock::new(|| regex(format!("/nix/store/{HASH_UPPER}")));
+static STORE_UPPER: LazyLock<Regex> =
+    LazyLock::new(|| regex(format!("/nix/store/{HASH_CHAR_UPPER}{{{HASH_LEN}}}")));
 
 // UTF-16LE string literals (QString/char16_t data in .rodata): the prefix with
 // a NUL after every character, then the hash, one character per 2 bytes.
 static STORE_UTF16: LazyLock<Regex> = LazyLock::new(|| {
     regex(format!(
-        r"(/\x00n\x00i\x00x\x00/\x00s\x00t\x00o\x00r\x00e\x00/\x00)(?:{}\x00){{32}}",
-        "[0-9a-df-np-sv-z]"
+        r"(/\x00n\x00i\x00x\x00/\x00s\x00t\x00o\x00r\x00e\x00/\x00)(?:{HASH_CHAR}\x00){{{HASH_LEN}}}"
     ))
 });
 
 // Relative references to a sibling store path, with no /nix/store prefix,
 // e.g. "${CMAKE_CURRENT_LIST_DIR}/../../../../<hash>-name" in *Config.cmake.
 // A whole path component of 32 nixbase32 characters followed by "-name".
-static RELATIVE: LazyLock<Regex> = LazyLock::new(|| regex(format!("(/){HASH}(-[A-Za-z0-9])")));
+static RELATIVE: LazyLock<Regex> =
+    LazyLock::new(|| regex(format!("(/){HASH_CHAR}{{{HASH_LEN}}}(-[A-Za-z0-9])")));
 
 /// Replace every store hash in `data`. Borrowed when nothing matched.
 pub fn rewrite(data: &[u8]) -> Cow<'_, [u8]> {
-    let mut replacement = b"/nix/store/".to_vec();
-    replacement.extend_from_slice(PLACEHOLDER);
-    let mut replacement_upper = b"/nix/store/".to_vec();
-    replacement_upper.extend_from_slice(PLACEHOLDER_UPPER);
+    let replacement = format!("/nix/store/{PLACEHOLDER}");
+    let replacement_upper = format!("/nix/store/{PLACEHOLDER_UPPER}");
 
     let mut out = Cow::Borrowed(data);
-    replace(&mut out, &STORE, replacement.as_slice());
-    replace(&mut out, &STORE_UPPER, replacement_upper.as_slice());
+    replace(&mut out, &STORE, replacement.as_bytes());
+    replace(&mut out, &STORE_UPPER, replacement_upper.as_bytes());
     replace(&mut out, &STORE_UTF16, |caps: &Captures| {
         let mut v = caps[1].to_vec();
-        v.extend(PLACEHOLDER.iter().flat_map(|&c| [c, 0]));
+        v.extend(PLACEHOLDER.bytes().flat_map(|c| [c, 0]));
         v
     });
     replace(&mut out, &RELATIVE, |caps: &Captures| {
         let mut v = caps[1].to_vec();
-        v.extend_from_slice(PLACEHOLDER);
+        v.extend_from_slice(PLACEHOLDER.as_bytes());
         v.extend_from_slice(&caps[2]);
         v
     });

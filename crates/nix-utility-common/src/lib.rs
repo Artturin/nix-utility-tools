@@ -4,9 +4,11 @@
 //!   crate is only for diagnostics.
 //! - [`process`]: running child processes so that they can be cancelled,
 //!   time limited and memory capped, taking all their descendants with them.
+//! - [`store`]: the syntax of store path hashes.
 
 pub mod notice;
 pub mod process;
+pub mod store;
 
 /// Cooperative cancellation shared between a front end and the work it started.
 pub use tokio_util::sync::CancellationToken as CancelToken;

@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use tempfile::TempDir;
@@ -18,8 +18,8 @@ impl Scratch {
         Ok(Self(TempDir::new()?))
     }
 
-    pub fn path(&self) -> PathBuf {
-        self.0.path().to_owned()
+    pub fn path(&self) -> &Path {
+        self.0.path()
     }
 }
 

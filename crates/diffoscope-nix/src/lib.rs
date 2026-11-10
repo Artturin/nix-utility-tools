@@ -18,7 +18,10 @@ use anyhow::{Context, anyhow};
 use regex::Regex;
 
 use nix_utility_common::notice::{Notice, NoticeSink};
-use nix_utility_common::process::{Cmd, Control, Out, Termination, run as run_process};
+use nix_utility_common::process::{
+    Cmd, Control, Out, Termination, run as run_process, shell_quote,
+};
+use nix_utility_common::store::hash_pattern;
 
 use crate::normalize::{Options, normalize};
 use crate::scratch::Scratch;
@@ -185,7 +188,7 @@ fn dry_run(
     let extra: String = req
         .diffoscope_args
         .iter()
-        .map(|arg| format!("{} ", arg.to_string_lossy()))
+        .map(|arg| format!("{} ", shell_quote(&arg.to_string_lossy())))
         .collect();
     plan(format!(
         "[dry-run] would run: diffoscope --text-color always {extra}{a} {b}"
@@ -200,7 +203,7 @@ fn dry_run(
 /// /nix/store/<hash>-name -> name, so both copies get identical paths
 fn store_name(path: &Path) -> anyhow::Result<String> {
     static HASH_PREFIX: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new("^[0-9a-df-np-sv-z]{32}-").expect("valid regex"));
+        LazyLock::new(|| Regex::new(&format!("^{}-", hash_pattern())).expect("valid regex"));
 
     let name = match path.file_name() {
         Some(name) => name.to_owned(),

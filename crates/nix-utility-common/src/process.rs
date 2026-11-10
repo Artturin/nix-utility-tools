@@ -74,7 +74,12 @@ impl Control {
     /// Whether a configured memory cap can actually be enforced, so a caller
     /// can tell the user when it can't.
     pub fn memory_cap_enforceable(&self) -> bool {
-        self.policy.memory_max.is_none() || self.scope_wanted() && systemd_scope_available()
+        self.policy.memory_max.is_none() || self.memory_cap_enforced()
+    }
+
+    /// Whether there is a memory cap and it is being enforced.
+    fn memory_cap_enforced(&self) -> bool {
+        self.scope_wanted() && systemd_scope_available()
     }
 
     fn scope_wanted(&self) -> bool {
@@ -185,9 +190,7 @@ impl Cmd {
 
     fn build(&self, ctl: &Control) -> (Command, Option<String>) {
         let (mut command, unit) = match ctl.policy.memory_max {
-            Some(bytes)
-                if self.memory_limited && ctl.scope_wanted() && systemd_scope_available() =>
-            {
+            Some(bytes) if self.memory_limited && ctl.memory_cap_enforced() => {
                 static COUNTER: AtomicU64 = AtomicU64::new(0);
                 let unit = format!(
                     "nix-utility-{}-{}",
@@ -220,7 +223,8 @@ impl Cmd {
     }
 }
 
-fn shell_quote(word: &str) -> String {
+/// Quote `word` for a POSIX shell, leaving plain words alone.
+pub fn shell_quote(word: &str) -> String {
     let plain = !word.is_empty()
         && word
             .chars()
@@ -274,12 +278,13 @@ impl Termination {
         }
     }
 
-    /// Killed by SIGKILL with a memory cap in force, which is how the cgroup
-    /// OOM killer shows up.
+    /// Killed by SIGKILL while a memory cap was enforced, which is how the
+    /// cgroup OOM killer shows up. Without an enforced cap a SIGKILL came
+    /// from elsewhere (the kernel's own OOM killer, say).
     pub fn killed_by_memory_limit(self, ctl: &Control) -> bool {
         matches!(self, Termination::Exited(status)
             if status.signal() == Some(Signal::SIGKILL as i32)
-                && ctl.policy.memory_max.is_some())
+                && ctl.memory_cap_enforced())
     }
 }
 
