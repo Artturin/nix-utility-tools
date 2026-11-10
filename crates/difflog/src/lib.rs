@@ -15,6 +15,7 @@ use regex::Regex;
 
 use nix_utility_common::notice::{Notice, NoticeSink};
 use nix_utility_common::process::{Cmd, Control, Out, Termination, run};
+use nix_utility_common::store::hash_pattern;
 
 pub use normalize::{Normalizer, Options as NormalizeOptions};
 
@@ -22,7 +23,7 @@ const TOOL: &str = "difflog";
 
 /// The `HASH-` prefix of a store path name.
 static STORE_HASH_PREFIX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[0-9a-df-np-sv-z]{32}-").unwrap());
+    LazyLock::new(|| Regex::new(&format!("^{}-", hash_pattern())).unwrap());
 static UNSAFE_FILENAME_CHARS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[^A-Za-z0-9._+-]").unwrap());
 
@@ -134,12 +135,11 @@ fn compare(
     write_log(&normalizer, &a, &tmp.path().join("a").join(&name_a), ctl)?;
     write_log(&normalizer, &b, &tmp.path().join("b").join(&name_b), ctl)?;
 
-    // When git diff opens a pager, quitting it may make git exit non-zero,
-    // which can interfere with scripts that use difflog.
     let mut git = Cmd::new("git")
         .args(git_diff_args(&req.git_args, &name_a, &name_b))
         .current_dir(tmp.path());
-    if matches!(diff_out, Out::Inherit) {
+    let to_terminal = matches!(diff_out, Out::Inherit);
+    if to_terminal {
         git = git.foreground();
     }
     let termination = run(&git, ctl, diff_out, Out::Inherit).context("failed to run `git diff`")?;
@@ -153,6 +153,9 @@ fn compare(
     match termination.code() {
         Some(0) => Ok(Outcome::Same),
         Some(1) => Ok(Outcome::Different),
+        // Quitting git's pager before the end kills git with SIGPIPE. The
+        // pager only fails to take everything when there was a diff to show.
+        _ if to_terminal && termination.broken_pipe() => Ok(Outcome::Different),
         _ => Err(anyhow!("`git diff` failed ({})", describe(termination)).into()),
     }
 }

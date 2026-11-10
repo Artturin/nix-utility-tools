@@ -25,6 +25,7 @@ Normalization includes:
  * replacing all store path hashes with a constant
  * stripping ECMA-48(-style) terminal controls, like colors
  * replacing dates, timestamps, and timings with constants
+   (disable with --keep-timings)
  * removing stdenv phase footers (\"buildPhase completed in 1 minutes
    5 seconds\"); they are only printed for phases of 30s or more, so
    the whole line is dropped, not just the duration

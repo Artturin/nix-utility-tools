@@ -77,7 +77,8 @@ fn run(cli: &Cli, token: &CancelToken) -> anyhow::Result<ExitCode> {
             ExitCode::from(1)
         }
         Outcome::DryRun => ExitCode::SUCCESS,
-        Outcome::Cancelled | Outcome::TimedOut => ExitCode::from(130),
+        Outcome::Cancelled => ExitCode::from(130),
+        Outcome::TimedOut => ExitCode::from(124),
     })
 }
 

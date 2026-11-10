@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 
 use anyhow::{Context, Result};
+use nix_utility_common::store::{PLACEHOLDER, hash_pattern};
 use regex::{Captures, Regex};
 
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +39,7 @@ impl Default for Options {
 
 struct Rule {
     re: Regex,
-    replacement: &'static str,
+    replacement: Cow<'static, str>,
 }
 
 pub struct Normalizer {
@@ -58,17 +59,11 @@ const SORTED_RUNS: [&str; 5] = [
 ];
 
 /// (enabled, pattern, replacement), applied in order.
-type Row = (bool, &'static str, &'static str);
+type Row = (bool, Cow<'static, str>, Cow<'static, str>);
 
 fn rule_table(o: &Options) -> Vec<Row> {
     let always = true;
-    vec![
-        // Normalize all store hashes.
-        (
-            always,
-            r"/nix/store/[a-z0-9]{32}-",
-            "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-",
-        ),
+    let rows: Vec<(bool, &'static str, &'static str)> = vec![
         // Seen locally but not in cached builds.
         (always, r"(?m)^@nix \{.*\n", ""),
         // ECMA-48 control sequences (colors in gcc warnings, ...) and other
@@ -76,15 +71,16 @@ fn rule_table(o: &Options) -> Vec<Row> {
         (always, r"\x1b\[.*?[\x40-\x7e]", ""),
         (always, r"\x1b[\x20-\x2f].", ""),
         (always, r"\x1b[\x30-\x5f]", ""),
-        // Dates that sneak in impurely, then timestamps and times.
+        // Dates that sneak in impurely, then timestamps and times
+        // ("M:SS.ss" at the start of a line, any number of minutes).
         (
-            always,
+            o.strip_timings,
             r"(?m)^(configure: autobuild timestamp\.\.\. )\d+-\d+",
             "${1}20200102-030405",
         ),
-        (always, r"(?m)^(\d?) ?\d:\d\d\.\d+ ", "${1} 0:00.00 "),
+        (o.strip_timings, r"(?m)^ ?\d+:\d\d\.\d+ ", "0:00.00 "),
         (
-            always,
+            o.strip_timings,
             r"(?i)\b(time: |elapsed: |in )\d+(?:\.\d+)?s",
             "${1}0.00s",
         ),
@@ -181,7 +177,19 @@ fn rule_table(o: &Options) -> Vec<Row> {
             r"(?m)^((?:[\w-]+: )?) *\d+/\d+( Test +#\d+: )",
             "${1}N/N${2}",
         ),
-    ]
+    ];
+    // Normalize all store hashes first.
+    let store = (
+        always,
+        Cow::Owned(format!("/nix/store/{}-", hash_pattern())),
+        Cow::Owned(format!("/nix/store/{PLACEHOLDER}-")),
+    );
+    std::iter::once(store)
+        .chain(
+            rows.into_iter()
+                .map(|(on, pattern, replacement)| (on, pattern.into(), replacement.into())),
+        )
+        .collect()
 }
 
 impl Normalizer {
@@ -190,7 +198,7 @@ impl Normalizer {
             .into_iter()
             .filter(|(enabled, ..)| *enabled)
             .map(|(_, pattern, replacement)| {
-                let re = Regex::new(pattern)
+                let re = Regex::new(&pattern)
                     .with_context(|| format!("invalid built-in pattern: {pattern}"))?;
                 Ok(Rule { re, replacement })
             })
@@ -212,18 +220,14 @@ impl Normalizer {
         let mut text = expand_tabs(&String::from_utf8_lossy(raw));
 
         for rule in &self.rules {
-            let replaced = match rule.re.replace_all(&text, rule.replacement) {
-                Cow::Owned(s) => s,
-                Cow::Borrowed(_) => continue,
-            };
-            text = replaced;
+            if let Cow::Owned(replaced) = rule.re.replace_all(&text, rule.replacement.as_ref()) {
+                text = replaced;
+            }
         }
         for re in &self.run_sorters {
-            let replaced = match re.replace_all(&text, |c: &Captures| sort_run(&c[0])) {
-                Cow::Owned(s) => s,
-                Cow::Borrowed(_) => continue,
-            };
-            text = replaced;
+            if let Cow::Owned(replaced) = re.replace_all(&text, |c: &Captures| sort_run(&c[0])) {
+                text = replaced;
+            }
         }
         if self.sort_lines {
             text = sort_lines(&text);
@@ -414,6 +418,9 @@ mod tests {
         );
         assert_eq!(norm("0:01.23 foo\n"), norm("2:59.99 foo\n"));
         assert!(norm("0:01.23 foo\n").ends_with("0:00.00 foo\n"));
+        // the width of the minutes must not matter
+        assert_eq!(norm("9:59.99 foo\n"), norm("10:01.02 foo\n"));
+        assert_eq!(norm(" 9:59.99 foo\n"), norm("123:45.67 foo\n"));
         assert_eq!(norm("Elapsed: 12.5s\n"), "Elapsed: 0.00s\n");
         assert_eq!(norm("finished in 3s\n"), "finished in 0.00s\n");
     }
@@ -510,8 +517,14 @@ mod tests {
     #[test]
     fn each_keep_flag_disables_its_rules() {
         type Case = (fn(&mut Options), &'static str);
-        let cases: [Case; 6] = [
+        let cases: [Case; 9] = [
             (|o| o.strip_timings = false, "-- Configuring done (14.6s)\n"),
+            (|o| o.strip_timings = false, "Elapsed: 12.5s\n"),
+            (|o| o.strip_timings = false, "1:02.34 foo\n"),
+            (
+                |o| o.strip_timings = false,
+                "configure: autobuild timestamp... 20231125-081234\n",
+            ),
             (|o| o.strip_paths = false, "/build/qsb-RoAGjy/x\n"),
             (|o| o.strip_jobs = false, "make -j23\n"),
             (
