@@ -74,7 +74,12 @@ impl Control {
     /// Whether a configured memory cap can actually be enforced, so a caller
     /// can tell the user when it can't.
     pub fn memory_cap_enforceable(&self) -> bool {
-        self.policy.memory_max.is_none() || self.scope_wanted() && systemd_scope_available()
+        self.policy.memory_max.is_none() || self.memory_cap_enforced()
+    }
+
+    /// Whether there is a memory cap and it is being enforced.
+    fn memory_cap_enforced(&self) -> bool {
+        self.scope_wanted() && systemd_scope_available()
     }
 
     fn scope_wanted(&self) -> bool {
@@ -185,9 +190,7 @@ impl Cmd {
 
     fn build(&self, ctl: &Control) -> (Command, Option<String>) {
         let (mut command, unit) = match ctl.policy.memory_max {
-            Some(bytes)
-                if self.memory_limited && ctl.scope_wanted() && systemd_scope_available() =>
-            {
+            Some(bytes) if self.memory_limited && ctl.memory_cap_enforced() => {
                 static COUNTER: AtomicU64 = AtomicU64::new(0);
                 let unit = format!(
                     "nix-utility-{}-{}",
@@ -220,7 +223,8 @@ impl Cmd {
     }
 }
 
-fn shell_quote(word: &str) -> String {
+/// Quote `word` for a POSIX shell, leaving plain words alone.
+pub fn shell_quote(word: &str) -> String {
     let plain = !word.is_empty()
         && word
             .chars()
@@ -274,12 +278,21 @@ impl Termination {
         }
     }
 
-    /// Killed by SIGKILL with a memory cap in force, which is how the cgroup
-    /// OOM killer shows up.
+    /// Ended by SIGPIPE (or the shell's 128 + SIGPIPE status): whatever it
+    /// was writing to went away, e.g. the user quit a pager early.
+    pub fn broken_pipe(self) -> bool {
+        let sigpipe = Signal::SIGPIPE as i32;
+        matches!(self, Termination::Exited(status)
+            if status.signal() == Some(sigpipe) || status.code() == Some(128 + sigpipe))
+    }
+
+    /// Killed by SIGKILL while a memory cap was enforced, which is how the
+    /// cgroup OOM killer shows up. Without an enforced cap a SIGKILL came
+    /// from elsewhere (the kernel's own OOM killer, say).
     pub fn killed_by_memory_limit(self, ctl: &Control) -> bool {
         matches!(self, Termination::Exited(status)
             if status.signal() == Some(Signal::SIGKILL as i32)
-                && ctl.policy.memory_max.is_some())
+                && ctl.memory_cap_enforced())
     }
 }
 
@@ -612,6 +625,17 @@ mod tests {
         assert!(!ctl.memory_cap_enforceable());
         let out = run_captured(&sh("echo ok").memory_limited(), &ctl).unwrap();
         assert_eq!(out.stdout_lossy(), "ok\n");
+    }
+
+    #[test]
+    fn a_broken_pipe_is_recognised() {
+        let ctl = Control::unlimited();
+        let killed = run_captured(&sh("kill -PIPE $$"), &ctl).unwrap();
+        assert!(killed.termination.broken_pipe());
+        let shell_status = run_captured(&sh("exit 141"), &ctl).unwrap();
+        assert!(shell_status.termination.broken_pipe());
+        let other = run_captured(&sh("exit 1"), &ctl).unwrap();
+        assert!(!other.termination.broken_pipe());
     }
 
     #[test]

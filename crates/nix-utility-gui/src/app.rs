@@ -45,6 +45,8 @@ pub enum Msg {
     Analysis(u64, String, Update),
     OpenPrefs,
     SetAnalyzer(AnalyzerSettings),
+    /// The preferences were closed: write the settings out.
+    SaveSettings,
     SortByVerdict,
 }
 
@@ -52,7 +54,8 @@ pub struct App {
     form: Form,
     keys: Arc<dyn KeyStore>,
     queue: Queue,
-    missing: Vec<&'static str>,
+    /// What is on PATH, checked at launch.
+    tools: Preflight,
     token: Rc<RefCell<Option<CancelToken>>>,
     quit_when_finished: Rc<Cell<bool>>,
     results: RefCell<Results>,
@@ -152,13 +155,10 @@ impl App {
         bypass: bool,
         settings: &AnalyzerSettings,
     ) -> Result<String, State> {
-        let diff = self
-            .results
-            .borrow_mut()
-            .diff_text(index)
-            .ok_or(State::Idle)?;
+        let mut results = self.results.borrow_mut();
+        let bytes = results.diff_bytes(index).ok_or(State::Idle)?;
         if !bypass {
-            match settings.check_size(diff.bytes) {
+            match settings.check_size(bytes) {
                 SizeCheck::Fits => {}
                 SizeCheck::TooLarge { bytes, limit } => {
                     return Err(State::TooLarge { bytes, limit });
@@ -166,7 +166,7 @@ impl App {
                 SizeCheck::ContextTooSmall => return Err(State::ContextTooSmall),
             }
         }
-        Ok(diff.text)
+        results.diff_text(index).ok_or(State::Idle)
     }
 
     /// Queue an analysis of package `index`. A manual request without a
@@ -364,7 +364,7 @@ impl SimpleComponent for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let settings = Settings::load().with_launch_dir();
-        let missing = Preflight::check().missing(settings.dry_run);
+        let tools = Preflight::check();
         let (form, form_widget) = Form::new(&window, &settings);
 
         // Run page: the form above, progress and the log below.
@@ -583,7 +583,7 @@ impl SimpleComponent for App {
             form,
             keys: Arc::new(FallbackKeyStore::system()),
             queue,
-            missing,
+            tools,
             token,
             quit_when_finished,
             results: RefCell::new(Results::default()),
@@ -631,6 +631,13 @@ impl SimpleComponent for App {
             Msg::Run(settings) => {
                 if self.running() {
                     return;
+                }
+                let missing = self.tools.missing(settings.dry_run);
+                if !missing.is_empty() {
+                    return self.toast(format!(
+                        "Cannot run: {} not found in PATH",
+                        missing.join(", ")
+                    ));
                 }
                 let mut cfg = match settings.config() {
                     Ok(cfg) => cfg,
@@ -830,10 +837,12 @@ impl SimpleComponent for App {
             Msg::OpenPrefs => self.open_prefs.set(true),
             Msg::SetAnalyzer(settings) => {
                 self.form.set_analyzer(settings);
+                self.analysis_dirty.set(true);
+            }
+            Msg::SaveSettings => {
                 if let Err(err) = self.form.read().save() {
                     log::warn!("could not save the settings: {err}");
                 }
-                self.analysis_dirty.set(true);
             }
             Msg::SortByVerdict => {
                 self.results.borrow_mut().sort_by_verdict();
@@ -846,7 +855,9 @@ impl SimpleComponent for App {
         let running = self.running();
         let analysing = self.queue.active();
         widgets.run_button.set_visible(!running);
-        widgets.run_button.set_sensitive(self.missing.is_empty());
+        // git and nix are needed for any run, diffoscope only for a real one.
+        let missing_always = self.tools.missing(true);
+        widgets.run_button.set_sensitive(missing_always.is_empty());
         widgets.cancel_button.set_visible(running || analysing);
         if running {
             widgets.cancel_button.set_label("Cancel run");
@@ -871,21 +882,23 @@ impl SimpleComponent for App {
             None => widgets.queue_label.set_text(""),
         }
 
-        widgets.banner.set_revealed(!self.missing.is_empty());
-        if !self.missing.is_empty() {
+        let missing_for_real = self.tools.missing(false);
+        widgets.banner.set_revealed(!missing_for_real.is_empty());
+        if !missing_for_real.is_empty() {
+            let (them, verb) = if missing_for_real.len() == 1 {
+                ("it", "is")
+            } else {
+                ("them", "are")
+            };
+            let consequence = if missing_always.is_empty() {
+                "Only dry runs are possible"
+            } else {
+                "Cannot run"
+            };
             widgets.banner.set_title(&format!(
-                "Cannot run: {} not found in PATH. Install {} or add {} to PATH, then restart.",
-                self.missing.join(", "),
-                if self.missing.len() == 1 {
-                    "it"
-                } else {
-                    "them"
-                },
-                if self.missing.len() == 1 {
-                    "it"
-                } else {
-                    "them"
-                },
+                "{consequence}: {} {verb} not in PATH. Install {them} or add {them} to PATH, \
+                 then restart.",
+                missing_for_real.join(", "),
             ));
         }
 
@@ -958,10 +971,7 @@ impl SimpleComponent for App {
             widgets.analysis = None;
 
             let mut results = self.results.borrow_mut();
-            let diff_bytes = self
-                .selected
-                .and_then(|i| results.diff_text(i))
-                .map(|d| d.bytes);
+            let diff_bytes = self.selected.and_then(|i| results.diff_bytes(i));
             let shown = self.selected.and_then(|i| results.show(i));
             match shown {
                 Some((package, files)) => {
@@ -1015,12 +1025,13 @@ impl SimpleComponent for App {
         }
 
         if self.open_prefs.take() {
-            let tx = sender.input_sender().clone();
+            let (changed, closed) = (sender.input_sender().clone(), sender.input_sender().clone());
             prefs::show(
                 &widgets.window,
                 self.analyzer(),
                 Arc::clone(&self.keys),
-                move |settings| tx.emit(Msg::SetAnalyzer(settings)),
+                move |settings| changed.emit(Msg::SetAnalyzer(settings)),
+                move || closed.emit(Msg::SaveSettings),
             );
         }
 

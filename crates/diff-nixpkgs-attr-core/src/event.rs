@@ -24,12 +24,30 @@ impl Side {
             Side::Head => "working tree",
         }
     }
+
+    /// "old" or "new", as the build steps call the sides.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Side::Base => "old",
+            Side::Head => "new",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Difflog,
     Diffoscope,
+}
+
+impl Tool {
+    /// The tool's name as the user knows it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Tool::Difflog => "difflog",
+            Tool::Diffoscope => "diffoscope-nix",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

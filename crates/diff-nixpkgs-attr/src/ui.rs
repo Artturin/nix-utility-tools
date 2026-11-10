@@ -5,9 +5,7 @@ use std::io::{self, IsTerminal, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 
 use diff_nixpkgs_attr_core::build::BuildEvent;
-use diff_nixpkgs_attr_core::{
-    Collected, Event, Flow, Level, Report, Side, Stage, Tool, ToolStatus,
-};
+use diff_nixpkgs_attr_core::{Collected, Event, Flow, Level, Report, Stage, Tool, ToolStatus};
 
 const S_STAGE: &str = "1;36"; // >>> progress lines
 const S_SET: &str = "1;35"; // attribute names inside progress lines
@@ -138,11 +136,12 @@ impl Ui {
         self.eprint(&line);
     }
 
-    fn pair(&self, old: &str, new: &str) -> String {
+    /// The old and new path, coloured for the stream it goes to.
+    fn pair(&self, colour: bool, old: &str, new: &str) -> String {
         format!(
             "    {} {old}\n    {} {new}\n",
-            paint(self.opts.colors.stderr, S_OLD, "-"),
-            paint(self.opts.colors.stderr, S_NEW, "+"),
+            paint(colour, S_OLD, "-"),
+            paint(colour, S_NEW, "+"),
         )
     }
 
@@ -244,12 +243,9 @@ impl Ui {
                 ));
             }
             Event::Stage(Stage::Building { side, derivations }) => {
-                let side = match side {
-                    Side::Base => "old",
-                    Side::Head => "new",
-                };
                 self.stage(&format!(
-                    "building the {side} side ({} derivations)",
+                    "building the {} side ({} derivations)",
+                    side.short_label(),
                     self.err(S_NUM, &derivations.to_string()),
                 ));
             }
@@ -339,10 +335,7 @@ impl Ui {
                 status,
             } => {
                 self.close_sink();
-                let name = match tool {
-                    Tool::Difflog => "difflog",
-                    Tool::Diffoscope => "diffoscope-nix",
-                };
+                let name = tool.name();
                 let what = match &output {
                     Some(output) => format!("{attr} [{output}]"),
                     None => attr,
@@ -365,7 +358,7 @@ impl Ui {
             } => {
                 self.output_header(&attr, &output);
                 self.warn("skipped: build output missing");
-                let pair = self.pair(&old_path, &new_path);
+                let pair = self.pair(self.opts.colors.stderr, &old_path, &new_path);
                 self.eprint(&pair);
             }
             Event::WouldDiff {
@@ -380,7 +373,7 @@ impl Ui {
                     self.out(S_OUTNAME, &format!("[{output}]")),
                 );
                 self.print(&line);
-                let pair = self.pair(&old_path, &new_path);
+                let pair = self.pair(self.opts.colors.stdout, &old_path, &new_path);
                 self.print(&pair);
             }
             Event::Saved(_) => {}
@@ -423,7 +416,7 @@ impl Ui {
                 text += &format!(
                     "  {}  {}\n",
                     self.out(S_OUT, &format!("{:<width$}", entry.attr)),
-                    self.err(S_OUTNAME, &parts.join(", ")),
+                    self.out(S_OUTNAME, &parts.join(", ")),
                 );
             }
         }
@@ -435,7 +428,7 @@ impl Ui {
             );
         }
         if report.stopped_early {
-            text += &self.err(S_DIM, "(stopped early: later attributes were not checked)");
+            text += &self.out(S_DIM, "(stopped early: later packages were not compared)");
             text.push('\n');
         }
         self.print(&text);

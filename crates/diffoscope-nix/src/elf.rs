@@ -45,13 +45,15 @@ pub fn nonzero_build_ids(data: &[u8]) -> Vec<Range<usize>> {
 }
 
 /// Only the ELF, program and section headers: enough to find the notes
-/// without parsing symbols, dynamic tables and so on.
+/// without parsing symbols, dynamic tables and so on. Either header table
+/// may be unreadable; the notes the other one leads to are still found.
 fn parse_headers(data: &[u8]) -> Option<Elf<'_>> {
     let header = Elf::parse_header(data).ok()?;
     let ctx = goblin::container::Ctx::new(header.container().ok()?, header.endianness().ok()?);
     let mut elf = Elf::lazy_parse(header).ok()?;
     elf.program_headers =
-        ProgramHeader::parse(data, header.e_phoff as usize, header.e_phnum as usize, ctx).ok()?;
+        ProgramHeader::parse(data, header.e_phoff as usize, header.e_phnum as usize, ctx)
+            .unwrap_or_default();
     elf.section_headers =
         SectionHeader::parse(data, header.e_shoff as usize, header.e_shnum as usize, ctx)
             .unwrap_or_default();

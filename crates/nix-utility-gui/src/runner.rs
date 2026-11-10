@@ -179,25 +179,29 @@ pub fn spawn(
     mut emit: impl FnMut(Update) + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        let outcome = (|| {
-            let key = keys
-                .get(&key_account(&settings))
-                .map_err(|err| Outcome::Failed(format!("cannot read the API key: {err}")))?;
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|err| Outcome::Failed(err.to_string()))?;
-            Ok::<_, Outcome>(runtime.block_on(run_job(
-                &settings,
-                key.as_deref(),
-                &job,
-                &cancel,
-                &mut |update| emit(update),
-            )))
-        })()
-        .unwrap_or_else(|failed| failed);
+        let outcome = run_blocking(&settings, keys.as_ref(), &job, &cancel, &mut emit)
+            .unwrap_or_else(|failed| failed);
         emit(Update::Finished(outcome));
     });
+}
+
+/// Look up the key and run the job to the end on this thread. `Err` holds
+/// the outcome of a failure before the model was asked.
+fn run_blocking(
+    settings: &AnalyzerSettings,
+    keys: &dyn KeyStore,
+    job: &Job,
+    cancel: &CancelToken,
+    emit: &mut (dyn FnMut(Update) + Send),
+) -> Result<Outcome, Outcome> {
+    let key = keys
+        .get(&key_account(settings))
+        .map_err(|err| Outcome::Failed(format!("cannot read the API key: {err}")))?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| Outcome::Failed(err.to_string()))?;
+    Ok(runtime.block_on(run_job(settings, key.as_deref(), job, cancel, emit)))
 }
 
 #[cfg(test)]

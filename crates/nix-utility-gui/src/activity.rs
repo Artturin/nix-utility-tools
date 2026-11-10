@@ -1,7 +1,7 @@
 //! The run's progress as the user sees it: log lines and a progress bar.
 
 use diff_nixpkgs_attr_core::build::BuildEvent;
-use diff_nixpkgs_attr_core::{Collected, Event, Level, Side, Stage, Tool, ToolStatus};
+use diff_nixpkgs_attr_core::{Collected, Event, Level, Stage, ToolStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -39,7 +39,7 @@ pub fn describe(event: &Event) -> Option<Line> {
             Kind::Stage,
             format!(
                 "Building the {} side ({derivations} derivations)",
-                side_name(*side)
+                side.short_label()
             ),
         ),
         Event::Notice(notice) => {
@@ -85,10 +85,7 @@ pub fn describe(event: &Event) -> Option<Line> {
             output,
             status,
         } => {
-            let name = match tool {
-                Tool::Difflog => "difflog",
-                Tool::Diffoscope => "diffoscope-nix",
-            };
+            let name = tool.name();
             let what = match output {
                 Some(output) => format!("{attr} [{output}]"),
                 None => attr.clone(),
@@ -123,13 +120,6 @@ pub fn describe(event: &Event) -> Option<Line> {
     }
 }
 
-fn side_name(side: Side) -> &'static str {
-    match side {
-        Side::Base => "old",
-        Side::Head => "new",
-    }
-}
-
 /// The one-line status and the progress bar.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Activity {
@@ -150,7 +140,7 @@ impl Activity {
                 self.fraction = None;
             }
             Event::Stage(Stage::Building { side, .. }) => {
-                self.status = format!("Building the {} side", side_name(*side));
+                self.status = format!("Building the {} side", side.short_label());
                 self.fraction = None;
             }
             Event::Build {
@@ -165,7 +155,7 @@ impl Activity {
             } => {
                 self.status = format!(
                     "Building the {} side: {done} of {expected} done, {running} running{}",
-                    side_name(*side),
+                    side.short_label(),
                     if *failed > 0 {
                         format!(", {failed} failed")
                     } else {
@@ -186,7 +176,7 @@ impl Activity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_nixpkgs_attr_core::Notice;
+    use diff_nixpkgs_attr_core::{Notice, Side, Tool};
 
     #[test]
     fn notices_keep_their_severity() {
