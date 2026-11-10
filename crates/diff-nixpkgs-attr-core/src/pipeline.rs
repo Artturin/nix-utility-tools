@@ -18,7 +18,7 @@ use crate::build::InternalJson;
 use crate::event::{Collected, Emitter, Event, Flow, Side, Stage, Tool, ToolStatus};
 use crate::jobs::{Changed, Evaluation, changed_outputs, installables};
 use crate::save::Saver;
-use crate::text::{LineBuffer, nix_string, url_path};
+use crate::text::{LineBuffer, SgrStripper, nix_string, url_path};
 use crate::tools::Preflight;
 
 const TOOL: &str = "diff-nixpkgs-attr";
@@ -150,6 +150,7 @@ fn completed(termination: Termination) -> Result<Termination, Stop> {
 
 struct Cx<'a> {
     cfg: &'a Config,
+    tools: Preflight,
     ctl: &'a Control,
     em: &'a Emitter<'a>,
     toplevel: PathBuf,
@@ -189,7 +190,8 @@ pub fn run_pipeline(
     let em = Emitter::new(on_event);
     let attrs = attr::prepare(&cfg.attrs)?;
     attr::validate_system(&cfg.system)?;
-    let missing = Preflight::check().missing(cfg.dry_run);
+    let tools = Preflight::check();
+    let missing = tools.missing(cfg.dry_run);
     if !missing.is_empty() {
         return Err(Error::MissingTools(missing));
     }
@@ -220,6 +222,7 @@ pub fn run_pipeline(
     let work = tempfile::tempdir().map_err(|e| Error::Other(e.into()))?;
     let cx = Cx {
         cfg,
+        tools,
         ctl,
         em: &em,
         toplevel,
@@ -358,7 +361,7 @@ fn eval_side(cx: &Cx<'_>, flake_ref: &str, attr: &str, side: Side) -> Result<Eva
         nix_string(flake_ref),
         cx.cfg.system,
     );
-    let mut cmd = if which::which("nix-eval-jobs").is_ok() {
+    let mut cmd = if cx.tools.nix_eval_jobs {
         Cmd::new("nix-eval-jobs")
     } else {
         Cmd::new("nix").args(["run", "nixpkgs#nix-eval-jobs", "--"])
@@ -374,12 +377,14 @@ fn eval_side(cx: &Cx<'_>, flake_ref: &str, attr: &str, side: Side) -> Result<Eva
     let mut evaluation = Evaluation::default();
     let (mut out_lines, mut err_lines) = (LineBuffer::default(), LineBuffer::default());
     let on_job = |line: String, evaluation: &mut Evaluation| {
+        let before = evaluation.jobs.len();
         evaluation.push_line(&line);
-        if evaluation.jobs.len().is_multiple_of(100) && !line.trim().is_empty() {
+        let jobs = evaluation.jobs.len();
+        if jobs > before && jobs.is_multiple_of(100) {
             cx.em.emit(Event::EvalProgress {
                 attr: attr.to_owned(),
                 side,
-                jobs: evaluation.jobs.len(),
+                jobs,
             });
         }
     };
@@ -503,10 +508,7 @@ fn build_side(cx: &Cx<'_>, side: Side, installables: &BTreeSet<String>) -> Resul
         side,
         derivations: installables.len(),
     }));
-    let out_link = cx.work.join(match side {
-        Side::Base => "old",
-        Side::Head => "new",
-    });
+    let out_link = cx.work.join(side.short_label());
     let mut cmd = Cmd::new("nix")
         .args([
             "build",
@@ -549,10 +551,7 @@ fn build_side(cx: &Cx<'_>, side: Side, installables: &BTreeSet<String>) -> Resul
             TOOL,
             format!(
                 "some {} builds failed; affected outputs will be skipped",
-                match side {
-                    Side::Base => "old",
-                    Side::Head => "new",
-                }
+                side.short_label()
             ),
         ));
     }
@@ -668,21 +667,14 @@ fn run_difflog(
             results.entry(attr).difflog = true;
             finish(ToolStatus::Different);
             // The saved copy never has colour.
-            let mut plain = Vec::new();
-            let saved = if cx.cfg.color {
-                match difflog::diff_logs(
-                    &difflog_request(row, "--no-color"),
-                    cx.ctl,
-                    &mut |_| {},
-                    Out::Sink(&mut |chunk| plain.extend_from_slice(chunk)),
-                ) {
-                    Ok(_) => &plain,
-                    Err(_) => &shown,
-                }
+            let result = if cx.cfg.color {
+                let (mut stripper, mut plain) = (SgrStripper::default(), Vec::new());
+                stripper.feed(&shown, &mut plain);
+                stripper.finish(&mut plain);
+                saver.difflog(attr, &plain)
             } else {
-                &shown
+                saver.difflog(attr, &shown)
             };
-            let result = saver.difflog(attr, saved);
             save(cx, saver, attr, result);
             Ok(())
         }

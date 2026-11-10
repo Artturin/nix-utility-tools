@@ -122,7 +122,7 @@ echo "eval-stderr" >&2"#
             r#"case "$1" in
   build) echo "$*" >> {dir}/nix-build-args; cat >> {dir}/nix-build-stdin
          echo '@nix {{"action":"msg","level":3,"msg":"built it"}}' >&2;;
-  log) cat "$2.log";;
+  log) echo "$2" >> {dir}/nix-log-calls; cat "$2.log";;
 esac"#
         ),
     );
@@ -241,6 +241,36 @@ printf '\033[31m'; diff -r --no-dereference "$before" "$last"; rc=$?; printf '\0
     let (again, _) = run(&cfg, &Control::unlimited());
     assert_eq!(again.status, Status::Completed);
     assert!(!saved.join("set.a/stale").exists());
+
+    // ---- with colour the diff is shown coloured, saved plain, and each
+    // build log is fetched once
+    let log_calls = || {
+        fs::read_to_string(fx.path("nix-log-calls"))
+            .unwrap()
+            .lines()
+            .count()
+    };
+    let calls_before = log_calls();
+    cfg.color = true;
+    let (coloured, events) = run(&cfg, &Control::unlimited());
+    cfg.color = false;
+    assert_eq!(coloured.status, Status::Completed);
+    assert_eq!(log_calls() - calls_before, 2);
+    let shown: Vec<u8> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Output {
+                tool: Tool::Difflog,
+                data,
+            } => Some(data.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(shown.contains(&0x1b), "git was asked for colour");
+    let difflog = fs::read_to_string(saved.join("set.a/difflog")).unwrap();
+    assert!(difflog.contains("+new-line"), "{difflog}");
+    assert!(!difflog.contains('\x1b'), "{difflog:?}");
 
     // ---- nothing changed: no results, nothing built
     let before = fs::read_to_string(fx.path("nix-build-args")).unwrap();
