@@ -33,7 +33,8 @@ Normalization includes:
  * replacing process ids (\"(process:842):\", \"Started with PID: 1766\")
    with N (disable with --keep-pids)
  * replacing random temp dir names (\"/build/qsb-RoAGjy/...\": six random
-   letters after \"NAME-\" directly under /build or /tmp) with XXXXXX
+   letters after \"NAME-\" directly under /build or /tmp) with XXXXXX,
+   and Python tempfile dirs (\"/build/tmp4omr_7m7/...\") with tmpXXXXXXXX
    (disable with --keep-paths)
  * replacing the kernel version CMake prints (\"CMAKE_HOST_SYSTEM:
    \"Linux-6.18.57\"\", \"CMAKE_HOST_SYSTEM_VERSION: \"6.18.57\"\") with

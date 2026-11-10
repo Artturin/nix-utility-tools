@@ -149,6 +149,12 @@ fn rule_table(o: &Options) -> Vec<Row> {
             r"((?:/build|/tmp)/[A-Za-z]\w*-)[A-Za-z]{6}/",
             "${1}XXXXXX/",
         ),
+        // Python tempfile.mkdtemp() dirs: "tmp" + 8 of [a-z0-9_] ("/build/tmp4omr_7m7/").
+        (
+            o.strip_paths,
+            r"((?:/build|/tmp)/tmp)[a-z0-9_]{8}\b",
+            "${1}XXXXXXXX",
+        ),
         (
             o.strip_timings,
             r"(\*\*: )\d\d:\d\d:\d\d\.\d+:",
@@ -342,6 +348,14 @@ mod tests {
     #[test]
     fn paths_pids_jobs_kernel() {
         assert_eq!(norm("/build/qsb-RoAGjy/x\n"), "/build/qsb-XXXXXX/x\n");
+        assert_eq!(
+            norm("/build/tmp4omr_7m7/dbus/dbus.pro /build/tmp7l5n8g49/QtTest\n"),
+            "/build/tmpXXXXXXXX/dbus/dbus.pro /build/tmpXXXXXXXX/QtTest\n"
+        );
+        assert_eq!(norm("/tmp/tmpabc_1234\n"), "/tmp/tmpXXXXXXXX\n");
+        // Not 8 characters, or not directly under /build or /tmp: left alone.
+        assert_eq!(norm("/build/tmp_install1/x\n"), "/build/tmp_install1/x\n");
+        assert_eq!(norm("/build/src/tmp4omr_7m7/x\n"), "/build/src/tmp4omr_7m7/x\n");
         assert_eq!(
             norm("(process:842): Gtk-CRITICAL **: 07:21:29.789: x\n"),
             "(process:N): Gtk-CRITICAL **: HH:MM:SS.mmm: x\n"
