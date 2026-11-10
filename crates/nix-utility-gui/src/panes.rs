@@ -157,7 +157,7 @@ fn ansi_view(text: &str) -> gtk::Widget {
     scrolled(&text_view(&buffer)).upcast()
 }
 
-fn status_page(title: &str, icon: &str, spinner: bool) -> gtk::Widget {
+pub fn status_page(title: &str, icon: &str, spinner: bool) -> gtk::Widget {
     let page = adw::StatusPage::builder()
         .title(title)
         .icon_name(icon)
@@ -213,10 +213,10 @@ pub fn output_page(
 }
 
 pub fn tab_label(output: &ToolOutput) -> String {
-    match output.status {
-        Status::Same => format!("{} (same)", output.label),
-        status if status.is_problem() => format!("{} ⚠", output.label),
-        _ => output.label.clone(),
+    if output.status.is_problem() {
+        format!("{} ⚠", output.label)
+    } else {
+        output.label.clone()
     }
 }
 

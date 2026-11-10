@@ -19,9 +19,10 @@ use crate::activity::{Activity, Kind, Line, describe};
 use crate::analysis::{
     self, AnalysisResult, AnalyzerSettings, AutoTiming, SizeCheck, Skipped, State, Trigger,
 };
-use crate::analysis_view::{self, AnalysisPane};
+use crate::analysis_view;
 use crate::form::{Form, choose_folder};
 use crate::keystore::{FallbackKeyStore, KeyStore};
+use crate::package_view::PackageView;
 use crate::panes;
 use crate::prefs;
 use crate::queue::{Item, Queue};
@@ -92,10 +93,7 @@ pub struct Widgets {
     list_rows: Rc<RefCell<Vec<usize>>>,
     same_rows: Rc<RefCell<Vec<usize>>>,
     content: adw::ViewStack,
-    notebook: gtk::Notebook,
-    rendered: Option<usize>,
-    /// The Analysis tab of the shown package and the size of its diff.
-    analysis: Option<(AnalysisPane, usize)>,
+    package: PackageView,
     queue_label: gtk::Label,
     sort_button: gtk::Button,
 }
@@ -437,10 +435,7 @@ impl SimpleComponent for App {
         sidebar.append(&list);
         sidebar.append(&same_expander);
         let list_scroller = gtk::ScrolledWindow::builder().child(&sidebar).build();
-        let notebook = gtk::Notebook::builder()
-            .scrollable(true)
-            .show_border(false)
-            .build();
+        let package = PackageView::new();
         let content = adw::ViewStack::new();
         content.add_named(
             &adw::StatusPage::builder()
@@ -450,7 +445,8 @@ impl SimpleComponent for App {
                 .build(),
             Some("empty"),
         );
-        content.add_named(&notebook, Some("tabs"));
+        content.add_named(&package.paned, Some("tabs"));
+        content.add_named(&package.no_tabs, Some("no-tabs"));
         let split = adw::NavigationSplitView::new();
         split.set_sidebar(Some(&adw::NavigationPage::new(&list_scroller, "Packages")));
         split.set_content(Some(&adw::NavigationPage::new(&content, "Differences")));
@@ -617,9 +613,7 @@ impl SimpleComponent for App {
             list_rows,
             same_rows,
             content,
-            notebook,
-            rendered: None,
-            analysis: None,
+            package,
             queue_label,
             sort_button,
         };
@@ -961,59 +955,36 @@ impl SimpleComponent for App {
         }
 
         if self.pane_dirty.take() {
-            let keep_tab = (widgets.rendered == self.selected)
-                .then(|| widgets.notebook.current_page())
-                .flatten();
-            while widgets.notebook.n_pages() > 0 {
-                widgets.notebook.remove_page(Some(0));
-            }
-            widgets.rendered = self.selected;
-            widgets.analysis = None;
-
             let mut results = self.results.borrow_mut();
             let diff_bytes = self.selected.and_then(|i| results.diff_bytes(i));
-            let shown = self.selected.and_then(|i| results.show(i));
+            let shown = self
+                .selected
+                .zip(self.selected.and_then(|i| results.show(i)));
             match shown {
-                Some((package, files)) => {
-                    let settings = self.analyzer();
-                    for (output, file) in package.outputs.iter().zip(files) {
-                        let page = panes::output_page(output, file, &widgets.window);
-                        let label = gtk::Label::new(Some(&panes::tab_label(output)));
-                        widgets.notebook.append_page(&page, Some(&label));
-                        if let (Some(bytes), Some(index), true) = (
-                            diff_bytes,
-                            self.selected,
-                            widgets.analysis.is_none()
-                                && output.tool == Tool::Difflog
-                                && output.status == crate::results::Status::Different,
-                        ) {
-                            let pane = AnalysisPane::new(
-                                index,
-                                sender.input_sender().clone(),
-                                &widgets.window,
-                            );
-                            pane.update(&analysis_view::View {
-                                state: &package.analysis,
-                                thinking: &package.thinking,
-                                settings: &settings,
-                                diff_bytes: bytes,
-                            });
-                            let label = gtk::Label::new(Some("Analysis"));
-                            widgets.notebook.append_page(&pane.root, Some(&label));
-                            widgets.analysis = Some((pane, bytes));
-                        }
-                    }
-                    if let Some(page) = keep_tab {
-                        widgets.notebook.set_current_page(Some(page));
-                    }
-                    widgets.content.set_visible_child_name("tabs");
+                Some((index, shown)) => {
+                    let has_tabs = widgets.package.render(
+                        index,
+                        shown,
+                        diff_bytes,
+                        &self.analyzer(),
+                        sender.input_sender(),
+                        &widgets.window,
+                    );
+                    widgets.content.set_visible_child_name(if has_tabs {
+                        "tabs"
+                    } else {
+                        "no-tabs"
+                    });
                 }
-                None => widgets.content.set_visible_child_name("empty"),
+                None => {
+                    widgets.package.forget();
+                    widgets.content.set_visible_child_name("empty");
+                }
             }
         }
 
         if self.analysis_dirty.take()
-            && let (Some((pane, bytes)), Some(index)) = (&widgets.analysis, self.selected)
+            && let (Some((pane, bytes)), Some(index)) = (&widgets.package.analysis, self.selected)
             && let Some(package) = self.results.borrow().packages.get(index)
         {
             pane.update(&analysis_view::View {

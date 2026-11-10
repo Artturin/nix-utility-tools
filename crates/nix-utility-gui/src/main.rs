@@ -5,6 +5,7 @@ mod ansi;
 mod app;
 mod form;
 mod keystore;
+mod package_view;
 mod panes;
 mod prefs;
 mod queue;

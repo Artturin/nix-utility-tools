@@ -149,6 +149,20 @@ impl Package {
     pub fn running(&self) -> bool {
         self.outputs.iter().any(|o| o.status == Status::Running)
     }
+
+    /// The outputs to show as tabs, those with differences first, then the
+    /// running ones, then those that went wrong; and apart from them the
+    /// outputs without differences. Arrival order within each group.
+    pub fn tab_order(&self) -> (Vec<usize>, Vec<usize>) {
+        let (mut tabs, unchanged): (Vec<usize>, Vec<usize>) =
+            (0..self.outputs.len()).partition(|&i| self.outputs[i].status != Status::Same);
+        tabs.sort_by_key(|&i| match self.outputs[i].status {
+            Status::Different => (0, i),
+            Status::Running => (1, i),
+            _ => (2, i),
+        });
+        (tabs, unchanged)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -463,6 +477,46 @@ mod tests {
             ToolStatus::Failed(None),
         ));
         assert!(!results.packages[0].unchanged());
+    }
+
+    #[test]
+    fn tabs_put_differences_first_and_leave_out_the_unchanged() {
+        let mut results = Results::default();
+        results.apply(&started("a"));
+        for (label, status) in [
+            ("difflog", Some(ToolStatus::Same)),
+            ("out", Some(ToolStatus::Failed(None))),
+            ("dev", Some(ToolStatus::Different)),
+            ("man", Some(ToolStatus::Same)),
+            ("doc", None),
+        ] {
+            let tool = if label == "difflog" {
+                Tool::Difflog
+            } else {
+                Tool::Diffoscope
+            };
+            let output = (tool == Tool::Diffoscope).then_some(label);
+            results.apply(&tool_started(tool, output));
+            if let Some(status) = status {
+                results.apply(&finished(tool, output, status));
+            }
+        }
+        results.apply(&Event::Skipped {
+            attr: "a".into(),
+            output: "lib".into(),
+            old_path: "o".into(),
+            new_path: "n".into(),
+        });
+        let package = &results.packages[0];
+        let labels = |indices: Vec<usize>| -> Vec<String> {
+            indices
+                .into_iter()
+                .map(|i| package.outputs[i].label.clone())
+                .collect()
+        };
+        let (tabs, unchanged) = package.tab_order();
+        assert_eq!(labels(tabs), ["dev", "doc", "out", "lib"]);
+        assert_eq!(labels(unchanged), ["difflog", "man"]);
     }
 
     #[test]
