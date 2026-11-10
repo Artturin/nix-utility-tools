@@ -13,11 +13,13 @@ use diff_nixpkgs_attr_core::{
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
+use relm4::gtk::{gio, glib};
 use relm4::prelude::*;
 
 use crate::activity::{Activity, Kind, Line, describe};
 use crate::analysis::{
-    self, AnalysisResult, AnalyzerSettings, AutoTiming, SizeCheck, Skipped, State, Trigger,
+    self, AnalysisPrefs, AnalysisResult, AnalyzerSettings, AutoTiming, SizeCheck, Skipped, State,
+    Trigger,
 };
 use crate::analysis_view;
 use crate::form::{Form, choose_folder};
@@ -45,7 +47,10 @@ pub enum Msg {
     /// An update from the analysis started in generation `.0` for `.1`.
     Analysis(u64, String, Update),
     OpenPrefs,
-    SetAnalyzer(AnalyzerSettings),
+    /// The preferences changed the profiles or what is shared by them.
+    SetAnalysis(AnalysisPrefs),
+    /// Use the analysis profile with this name.
+    SwitchProfile(String),
     /// The preferences were closed: write the settings out.
     SaveSettings,
     SortByVerdict,
@@ -69,6 +74,7 @@ pub struct App {
     expand_same: Cell<bool>,
     pane_dirty: Cell<bool>,
     analysis_dirty: Cell<bool>,
+    profiles_dirty: Cell<bool>,
     open_prefs: Cell<bool>,
     show_results: Cell<bool>,
     toast: RefCell<Option<String>>,
@@ -96,6 +102,8 @@ pub struct Widgets {
     package: PackageView,
     queue_label: gtk::Label,
     sort_button: gtk::Button,
+    profile_button: gtk::MenuButton,
+    profile_action: gio::SimpleAction,
 }
 
 impl App {
@@ -136,6 +144,12 @@ impl App {
 
     fn analyzer(&self) -> AnalyzerSettings {
         self.form.analyzer()
+    }
+
+    fn save_settings(&self) {
+        if let Err(err) = self.form.read().save() {
+            log::warn!("could not save the settings: {err}");
+        }
     }
 
     fn set_analysis(&self, index: usize, state: State) {
@@ -289,7 +303,7 @@ impl App {
             return;
         };
         let path = analysis_path(&dir, attr);
-        if let Err(err) = analysis::save(&path, result, self.analyzer().save_host) {
+        if let Err(err) = analysis::save(&path, result, self.form.analysis().save_host) {
             self.toast(format!("Cannot save the analysis of {attr}: {err}"));
         }
     }
@@ -332,6 +346,25 @@ fn event_attr(event: &Event) -> Option<&str> {
         | Event::Skipped { attr, .. } => Some(attr),
         _ => None,
     }
+}
+
+/// List the profiles in the header menu and name the active one on its button.
+fn show_profiles(button: &gtk::MenuButton, action: &gio::SimpleAction, prefs: &AnalysisPrefs) {
+    let profiles = gio::Menu::new();
+    for name in prefs.names() {
+        // Menu labels treat `_` as a mnemonic marker.
+        let item = gio::MenuItem::new(Some(&name.replace('_', "__")), None);
+        item.set_action_and_target_value(Some("win.profile"), Some(&name.to_variant()));
+        profiles.append_item(&item);
+    }
+    let edit = gio::Menu::new();
+    edit.append(Some("Edit profiles…"), Some("win.analysis-prefs"));
+    let menu = gio::Menu::new();
+    menu.append_section(Some("Analysis profile"), &profiles);
+    menu.append_section(None, &edit);
+    button.set_menu_model(Some(&menu));
+    button.set_label(&prefs.active);
+    action.set_state(&prefs.active.to_variant());
 }
 
 fn button(label: &str, class: &str) -> gtk::Button {
@@ -474,6 +507,31 @@ impl SimpleComponent for App {
             .icon_name("preferences-system-symbolic")
             .tooltip_text("Analysis preferences")
             .build();
+        let profile_button = gtk::MenuButton::builder()
+            .tooltip_text("Analysis profile")
+            .always_show_arrow(true)
+            .build();
+        let profile_action = gio::SimpleAction::new_stateful(
+            "profile",
+            Some(glib::VariantTy::STRING),
+            &settings.analysis.active.to_variant(),
+        );
+        {
+            let sender = sender.clone();
+            profile_action.connect_activate(move |_, name| {
+                if let Some(name) = name.and_then(|name| name.str()) {
+                    sender.input(Msg::SwitchProfile(name.to_owned()));
+                }
+            });
+        }
+        window.add_action(&profile_action);
+        let prefs_action = gio::SimpleAction::new("analysis-prefs", None);
+        {
+            let sender = sender.clone();
+            prefs_action.connect_activate(move |_, _| sender.input(Msg::OpenPrefs));
+        }
+        window.add_action(&prefs_action);
+        show_profiles(&profile_button, &profile_action, &settings.analysis);
         let header = adw::HeaderBar::new();
         header.set_title_widget(Some(
             &adw::ViewSwitcher::builder()
@@ -484,6 +542,7 @@ impl SimpleComponent for App {
         header.pack_start(&run_button);
         header.pack_start(&cancel_button);
         header.pack_end(&prefs_button);
+        header.pack_end(&profile_button);
         header.pack_end(&open_button);
 
         let banner = adw::Banner::new("");
@@ -591,6 +650,7 @@ impl SimpleComponent for App {
             expand_same: Cell::new(false),
             pane_dirty: Cell::new(false),
             analysis_dirty: Cell::new(false),
+            profiles_dirty: Cell::new(false),
             open_prefs: Cell::new(false),
             show_results: Cell::new(false),
             toast: RefCell::new(None),
@@ -616,6 +676,8 @@ impl SimpleComponent for App {
             package,
             queue_label,
             sort_button,
+            profile_button,
+            profile_action,
         };
         ComponentParts { model, widgets }
     }
@@ -829,15 +891,19 @@ impl SimpleComponent for App {
                 }
             }
             Msg::OpenPrefs => self.open_prefs.set(true),
-            Msg::SetAnalyzer(settings) => {
-                self.form.set_analyzer(settings);
+            Msg::SetAnalysis(prefs) => {
+                self.form.set_analysis(prefs);
                 self.analysis_dirty.set(true);
+                self.profiles_dirty.set(true);
             }
-            Msg::SaveSettings => {
-                if let Err(err) = self.form.read().save() {
-                    log::warn!("could not save the settings: {err}");
+            Msg::SwitchProfile(name) => {
+                if self.form.select_profile(&name) {
+                    self.analysis_dirty.set(true);
+                    self.profiles_dirty.set(true);
+                    self.save_settings();
                 }
             }
+            Msg::SaveSettings => self.save_settings(),
             Msg::SortByVerdict => {
                 self.results.borrow_mut().sort_by_verdict();
                 self.list_dirty.set(true);
@@ -995,13 +1061,21 @@ impl SimpleComponent for App {
             });
         }
 
+        if self.profiles_dirty.take() {
+            show_profiles(
+                &widgets.profile_button,
+                &widgets.profile_action,
+                &self.form.analysis(),
+            );
+        }
+
         if self.open_prefs.take() {
             let (changed, closed) = (sender.input_sender().clone(), sender.input_sender().clone());
             prefs::show(
                 &widgets.window,
-                self.analyzer(),
+                self.form.analysis(),
                 Arc::clone(&self.keys),
-                move |settings| changed.emit(Msg::SetAnalyzer(settings)),
+                move |prefs| changed.emit(Msg::SetAnalysis(prefs)),
                 move || closed.emit(Msg::SaveSettings),
             );
         }

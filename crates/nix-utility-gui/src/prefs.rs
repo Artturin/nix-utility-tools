@@ -1,6 +1,6 @@
 //! The preferences window for the analyzer.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use relm4::adw::prelude::*;
 use relm4::gtk;
 use tokio::sync::oneshot;
 
-use crate::analysis::{AnalyzerSettings, AutoTiming, Endpoint};
+use crate::analysis::{AnalysisPrefs, AnalyzerSettings, AutoTiming, Endpoint};
 use crate::keystore::{KeyStore, Stored};
 use crate::runner::key_account;
 
@@ -61,18 +61,84 @@ fn spin(title: &str, subtitle: &str, max: f64, step: f64, value: f64) -> adw::Sp
     row
 }
 
+const MODELS_HINT: &str = "Press refresh to list what the server offers";
+const KEY_HINT: &str = "Type a key and press the apply button to store it";
+
+fn endpoint_index(endpoint: Endpoint) -> u32 {
+    Endpoint::ALL
+        .iter()
+        .position(|&e| e == endpoint)
+        .unwrap_or(0) as u32
+}
+
+fn timing_index(timing: AutoTiming) -> u32 {
+    match timing {
+        AutoTiming::AfterRun => 0,
+        AutoTiming::DuringRun => 1,
+    }
+}
+
+fn clear(list: &gtk::ListBox) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+}
+
 pub fn show(
     window: &adw::ApplicationWindow,
-    initial: AnalyzerSettings,
+    initial: AnalysisPrefs,
     keys: Arc<dyn KeyStore>,
-    on_change: impl Fn(AnalyzerSettings) + 'static,
+    on_change: impl Fn(AnalysisPrefs) + 'static,
     on_closed: impl Fn() + 'static,
 ) {
+    let current = initial.active().clone();
     let state = Rc::new(RefCell::new(initial.clone()));
+    // Set while the rows are filled from another profile, so that filling
+    // them is not taken for an edit.
+    let loading = Rc::new(Cell::new(false));
+    // Bumped on every profile switch; a model list fetched for an earlier
+    // profile is then dropped.
+    let generation = Rc::new(Cell::new(0u64));
+    let on_change: Rc<dyn Fn(AnalysisPrefs)> = Rc::new(on_change);
     let dialog = adw::PreferencesDialog::builder()
         .title("Analysis preferences")
         .build();
     let page = adw::PreferencesPage::new();
+
+    // Profile.
+    let profile_group = adw::PreferencesGroup::builder()
+        .title("Profile")
+        .description(
+            "Everything below except the privacy setting belongs to the profile. \
+             The header bar shows which profile is in use and switches between them.",
+        )
+        .build();
+    let names = gtk::StringList::new(&[]);
+    let profile = adw::ComboRow::builder()
+        .title("Profile in use")
+        .model(&names)
+        .build();
+    let name = adw::EntryRow::builder()
+        .title("Name")
+        .show_apply_button(true)
+        .build();
+    let add = gtk::Button::builder()
+        .icon_name("edit-copy-symbolic")
+        .tooltip_text("New profile, copied from this one")
+        .css_classes(["flat"])
+        .build();
+    let remove = gtk::Button::builder()
+        .icon_name("user-trash-symbolic")
+        .tooltip_text("Delete this profile")
+        .css_classes(["flat"])
+        .build();
+    let profile_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    profile_buttons.append(&add);
+    profile_buttons.append(&remove);
+    profile_group.set_header_suffix(Some(&profile_buttons));
+    profile_group.add(&profile);
+    profile_group.add(&name);
+    page.add(&profile_group);
 
     // Server.
     let server = adw::PreferencesGroup::builder()
@@ -84,20 +150,15 @@ pub fn show(
         .model(&gtk::StringList::new(
             &Endpoint::ALL.map(|endpoint| endpoint.label()),
         ))
-        .selected(
-            Endpoint::ALL
-                .iter()
-                .position(|&e| e == initial.endpoint)
-                .unwrap_or(0) as u32,
-        )
+        .selected(endpoint_index(current.endpoint))
         .build();
     let host = adw::EntryRow::builder()
         .title("Host (empty for the default address)")
-        .text(&initial.host)
+        .text(&current.host)
         .build();
     let model = adw::EntryRow::builder()
         .title("Model")
-        .text(&initial.model)
+        .text(&current.model)
         .build();
     let fetch = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
@@ -130,7 +191,7 @@ pub fn show(
     model.add_suffix(&models_button);
     let models_status = adw::ActionRow::builder()
         .title("Models")
-        .subtitle("Press refresh to list what the server offers")
+        .subtitle(MODELS_HINT)
         .subtitle_lines(0)
         .build();
     for row in [
@@ -147,7 +208,8 @@ pub fn show(
     let key_group = adw::PreferencesGroup::builder()
         .title("API key")
         .description(
-            "Stored in the desktop's secret service, never in the settings file. \
+            "Stored in the desktop's secret service, never in the settings file, and \
+             shared by profiles with the same server type and host. \
              Not needed for local servers.",
         )
         .build();
@@ -157,7 +219,7 @@ pub fn show(
         .build();
     let key_status = adw::ActionRow::builder()
         .title("Status")
-        .subtitle("Type a key and press the apply button to store it")
+        .subtitle(KEY_HINT)
         .subtitle_lines(0)
         .build();
     let key_remove = gtk::Button::builder()
@@ -178,28 +240,28 @@ pub fn show(
         "",
         4_000_000.0,
         256.0,
-        f64::from(initial.context_tokens),
+        f64::from(current.context_tokens),
     );
     let thinking = spin(
         "Maximum thinking tokens",
         "0 for no limit; stops a model that thinks for too long",
         1_000_000.0,
         256.0,
-        f64::from(initial.max_thinking_tokens),
+        f64::from(current.max_thinking_tokens),
     );
     let output = spin(
         "Maximum answer tokens",
         "0 for no limit",
         1_000_000.0,
         64.0,
-        f64::from(initial.max_output_tokens),
+        f64::from(current.max_output_tokens),
     );
     let idle = spin(
         "Silence timeout (seconds)",
         "Give up when the server sends nothing for this long; 0 to wait forever",
         86_400.0,
         30.0,
-        initial.idle_timeout_secs as f64,
+        current.idle_timeout_secs as f64,
     );
     let limit = adw::ActionRow::builder()
         .title("Largest diff")
@@ -218,7 +280,7 @@ pub fn show(
     let auto_on = adw::SwitchRow::builder()
         .title("Analyze every changed build log")
         .subtitle("One at a time. Off: use the Analyze button on a package")
-        .active(initial.auto_analyze)
+        .active(current.auto_analyze)
         .build();
     let timing = adw::ComboRow::builder()
         .title("When")
@@ -226,32 +288,36 @@ pub fn show(
             "After the run finishes",
             "As each build log finishes",
         ]))
-        .selected(match initial.auto_timing {
-            AutoTiming::AfterRun => 0,
-            AutoTiming::DuringRun => 1,
-        })
+        .selected(timing_index(current.auto_timing))
         .build();
     let cap = spin(
         "Most packages per run",
         "0 for no limit; the others keep their Analyze button",
         100_000.0,
         5.0,
-        f64::from(initial.auto_cap),
+        f64::from(current.auto_cap),
     );
+    for row in [
+        auto_on.upcast_ref::<gtk::Widget>(),
+        timing.upcast_ref(),
+        cap.upcast_ref(),
+    ] {
+        auto.add(row);
+    }
+    page.add(&auto);
+
+    // Privacy, shared by every profile.
+    let privacy = adw::PreferencesGroup::builder()
+        .title("Privacy")
+        .description("The same for every profile.")
+        .build();
     let save_host = adw::SwitchRow::builder()
         .title("Save the host in analysis files")
         .subtitle("Off: a shared results directory does not reveal the server's address")
         .active(initial.save_host)
         .build();
-    for row in [
-        auto_on.upcast_ref::<gtk::Widget>(),
-        timing.upcast_ref(),
-        cap.upcast_ref(),
-        save_host.upcast_ref(),
-    ] {
-        auto.add(row);
-    }
-    page.add(&auto);
+    privacy.add(&save_host);
+    page.add(&privacy);
     dialog.add(&page);
 
     // Whatever changed, tell the window and refresh what is derived.
@@ -259,47 +325,204 @@ pub fn show(
         let (state, limit, context) = (Rc::clone(&state), limit.clone(), context.clone());
         Rc::new(move || {
             let state = state.borrow();
+            let profile = state.active();
             context.set_subtitle(&format!(
                 "0 uses the default for this server type ({}). Match the server's own setting.",
-                state.endpoint.default_context()
+                profile.endpoint.default_context()
             ));
             limit.set_subtitle(&format!(
                 "{} {}",
-                state.limit_text(),
-                state.context_advice()
+                profile.limit_text(),
+                profile.context_advice()
             ));
         })
     };
     refresh();
     let commit = {
-        let (state, refresh) = (Rc::clone(&state), Rc::clone(&refresh));
-        let on_change = Rc::new(on_change);
-        Rc::new(move |change: &dyn Fn(&mut AnalyzerSettings)| {
+        let (state, refresh, loading) =
+            (Rc::clone(&state), Rc::clone(&refresh), Rc::clone(&loading));
+        let on_change = Rc::clone(&on_change);
+        Rc::new(move |change: &dyn Fn(&mut AnalysisPrefs)| {
+            if loading.get() {
+                return;
+            }
             change(&mut state.borrow_mut());
             refresh();
             on_change(state.borrow().clone());
         })
     };
 
+    // Fill every row from the active profile, after switching to another.
+    let load = {
+        let (state, loading, generation, refresh) = (
+            Rc::clone(&state),
+            Rc::clone(&loading),
+            Rc::clone(&generation),
+            Rc::clone(&refresh),
+        );
+        let (names, profile, name, remove) =
+            (names.clone(), profile.clone(), name.clone(), remove.clone());
+        let (endpoint, host, model) = (endpoint.clone(), host.clone(), model.clone());
+        let (models_list, models_button, models_status, models_popover) = (
+            models_list.clone(),
+            models_button.clone(),
+            models_status.clone(),
+            models_popover.clone(),
+        );
+        let (key_entry, key_status) = (key_entry.clone(), key_status.clone());
+        let (context, thinking, output, idle) = (
+            context.clone(),
+            thinking.clone(),
+            output.clone(),
+            idle.clone(),
+        );
+        let (auto_on, timing, cap) = (auto_on.clone(), timing.clone(), cap.clone());
+        Rc::new(move || {
+            loading.set(true);
+            generation.set(generation.get() + 1);
+            let prefs = state.borrow().clone();
+            let current = prefs.active();
+            let all = prefs.names();
+            let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+            names.splice(0, names.n_items(), &refs);
+            profile.set_selected(all.iter().position(|n| *n == current.name).unwrap_or(0) as u32);
+            name.set_text(&current.name);
+            name.remove_css_class("error");
+            remove.set_sensitive(prefs.profiles.len() > 1);
+            endpoint.set_selected(endpoint_index(current.endpoint));
+            host.set_text(&current.host);
+            model.set_text(&current.model);
+            models_popover.popdown();
+            clear(&models_list);
+            models_button.set_sensitive(false);
+            models_status.set_subtitle(MODELS_HINT);
+            key_entry.set_text("");
+            key_status.set_subtitle(KEY_HINT);
+            context.set_value(f64::from(current.context_tokens));
+            thinking.set_value(f64::from(current.max_thinking_tokens));
+            output.set_value(f64::from(current.max_output_tokens));
+            idle.set_value(current.idle_timeout_secs as f64);
+            auto_on.set_active(current.auto_analyze);
+            timing.set_selected(timing_index(current.auto_timing));
+            cap.set_value(f64::from(current.auto_cap));
+            loading.set(false);
+            refresh();
+        })
+    };
+    load();
+
+    // Switching, copying, deleting and renaming profiles.
+    let switched = {
+        let (state, load, on_change) = (Rc::clone(&state), Rc::clone(&load), Rc::clone(&on_change));
+        Rc::new(move |change: &dyn Fn(&mut AnalysisPrefs)| {
+            change(&mut state.borrow_mut());
+            load();
+            on_change(state.borrow().clone());
+        })
+    };
+    {
+        let (switched, loading) = (Rc::clone(&switched), Rc::clone(&loading));
+        profile.connect_selected_notify(move |row| {
+            if loading.get() {
+                return;
+            }
+            let Some(chosen) = row
+                .selected_item()
+                .and_downcast::<gtk::StringObject>()
+                .map(|item| item.string().to_string())
+            else {
+                return;
+            };
+            switched(&|prefs| {
+                prefs.select(&chosen);
+            });
+        });
+    }
+    {
+        let switched = Rc::clone(&switched);
+        add.connect_clicked(move |_| {
+            switched(&|prefs| {
+                prefs.add_copy();
+            })
+        });
+    }
+    {
+        let (switched, state, window) = (Rc::clone(&switched), Rc::clone(&state), dialog.clone());
+        remove.connect_clicked(move |_| {
+            let confirm = adw::AlertDialog::new(
+                Some(&format!("Delete the profile “{}”?", state.borrow().active)),
+                Some("Its API key stays in the secret service."),
+            );
+            let switched = Rc::clone(&switched);
+            confirm.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
+            confirm.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+            confirm.set_default_response(Some("cancel"));
+            confirm.set_close_response("cancel");
+            confirm.connect_response(None, move |_, response| {
+                if response == "delete" {
+                    switched(&|prefs| {
+                        prefs.remove_active();
+                    });
+                }
+            });
+            confirm.present(Some(&window));
+        });
+    }
+    {
+        let (state, loading, names, profile) = (
+            Rc::clone(&state),
+            Rc::clone(&loading),
+            names.clone(),
+            profile.clone(),
+        );
+        let on_change = Rc::clone(&on_change);
+        // Renamed on apply only, so that a half-typed name is never saved.
+        name.connect_changed(|row| {
+            row.remove_css_class("error");
+            row.set_tooltip_text(None);
+        });
+        name.connect_apply(move |row| {
+            let result = state.borrow_mut().rename_active(&row.text());
+            match result {
+                Ok(()) => {
+                    row.remove_css_class("error");
+                    row.set_tooltip_text(None);
+                    // Relabel the profile in the list without switching.
+                    let index = profile.selected();
+                    loading.set(true);
+                    names.splice(index, 1, &[state.borrow().active.as_str()]);
+                    profile.set_selected(index);
+                    loading.set(false);
+                    on_change(state.borrow().clone());
+                }
+                Err(why) => {
+                    row.add_css_class("error");
+                    row.set_tooltip_text(Some(why));
+                }
+            }
+        });
+    }
+
+    // Rows of the active profile.
     {
         let commit = Rc::clone(&commit);
         endpoint.connect_selected_notify(move |row| {
             let chosen = Endpoint::ALL[(row.selected() as usize).min(Endpoint::ALL.len() - 1)];
-            commit(&|s| s.endpoint = chosen);
+            commit(&|p| p.active_mut().endpoint = chosen);
         });
     }
     {
         let commit = Rc::clone(&commit);
         host.connect_changed(move |row| {
             let text = row.text().to_string();
-            commit(&|s| s.host = text.clone());
+            commit(&|p| p.active_mut().host = text.clone());
         });
     }
     {
         let commit = Rc::clone(&commit);
         model.connect_changed(move |row| {
             let text = row.text().to_string();
-            commit(&|s| s.model = text.trim().to_owned());
+            commit(&|p| p.active_mut().model = text.trim().to_owned());
         });
     }
     for (row, set) in [
@@ -314,21 +537,21 @@ pub fn show(
         let commit = Rc::clone(&commit);
         row.connect_value_notify(move |row| {
             let value = row.value() as u32;
-            commit(&|s| set(s, value));
+            commit(&|p| set(p.active_mut(), value));
         });
     }
     {
         let commit = Rc::clone(&commit);
         idle.connect_value_notify(move |row| {
             let value = row.value() as u64;
-            commit(&|s| s.idle_timeout_secs = value);
+            commit(&|p| p.active_mut().idle_timeout_secs = value);
         });
     }
     {
         let commit = Rc::clone(&commit);
         auto_on.connect_active_notify(move |row| {
             let value = row.is_active();
-            commit(&|s| s.auto_analyze = value);
+            commit(&|p| p.active_mut().auto_analyze = value);
         });
     }
     {
@@ -339,20 +562,21 @@ pub fn show(
             } else {
                 AutoTiming::AfterRun
             };
-            commit(&|s| s.auto_timing = value);
+            commit(&|p| p.active_mut().auto_timing = value);
         });
     }
     {
         let commit = Rc::clone(&commit);
         save_host.connect_active_notify(move |row| {
             let value = row.is_active();
-            commit(&|s| s.save_host = value);
+            commit(&|p| p.save_host = value);
         });
     }
 
     // Models.
     {
-        let (state, keys) = (Rc::clone(&state), Arc::clone(&keys));
+        let (state, keys, generation) =
+            (Rc::clone(&state), Arc::clone(&keys), Rc::clone(&generation));
         let (status, list, button, popover, model) = (
             models_status.clone(),
             models_list.clone(),
@@ -370,16 +594,19 @@ pub fn show(
         fetch.connect_clicked(move |fetch| {
             fetch.set_sensitive(false);
             status.set_subtitle("Asking the server…");
-            let (settings, keys) = (state.borrow().clone(), Arc::clone(&keys));
+            let (settings, keys) = (state.borrow().active().clone(), Arc::clone(&keys));
+            let asked_in = generation.get();
+            let generation = Rc::clone(&generation);
             let (fetch, status, list, button) =
                 (fetch.clone(), status.clone(), list.clone(), button.clone());
             in_background(
                 move || fetch_models(&settings, keys.as_ref()),
                 move |result| {
                     fetch.set_sensitive(true);
-                    while let Some(child) = list.first_child() {
-                        list.remove(&child);
+                    if generation.get() != asked_in {
+                        return;
                     }
+                    clear(&list);
                     match result {
                         Ok(models) if models.is_empty() => {
                             status.set_subtitle("The server offers no models");
@@ -422,7 +649,7 @@ pub fn show(
             if key.is_empty() {
                 return;
             }
-            let account = key_account(&state.borrow());
+            let account = key_account(state.borrow().active());
             let keys = Arc::clone(&keys);
             status.set_subtitle("Storing…");
             let (status, row) = (status.clone(), row.clone());
@@ -444,7 +671,7 @@ pub fn show(
     {
         let (state, keys, status) = (Rc::clone(&state), Arc::clone(&keys), key_status.clone());
         key_remove.connect_clicked(move |_| {
-            let account = key_account(&state.borrow());
+            let account = key_account(state.borrow().active());
             let keys = Arc::clone(&keys);
             let status = status.clone();
             in_background(

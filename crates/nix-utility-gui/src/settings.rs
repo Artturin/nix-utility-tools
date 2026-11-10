@@ -8,7 +8,7 @@ use std::time::Duration;
 use diff_nixpkgs_attr_core::{Config, Control, ProcessPolicy, SystemdRun};
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::AnalyzerSettings;
+use crate::analysis::AnalysisPrefs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -29,7 +29,7 @@ pub struct Settings {
     /// Where `differences-…` goes; empty: inside the nixpkgs checkout.
     pub output_dir: String,
     pub dry_run: bool,
-    pub analyzer: AnalyzerSettings,
+    pub analysis: AnalysisPrefs,
 }
 
 impl Default for Settings {
@@ -45,7 +45,7 @@ impl Default for Settings {
             timeout_minutes: 0,
             output_dir: String::new(),
             dry_run: false,
-            analyzer: AnalyzerSettings::default(),
+            analysis: AnalysisPrefs::default(),
         }
     }
 }
@@ -61,6 +61,12 @@ impl Settings {
     }
 
     pub fn load_from(path: &Path) -> Self {
+        let mut settings = Self::read_from(path);
+        settings.analysis.normalize();
+        settings
+    }
+
+    fn read_from(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(text) => toml::from_str(&text).unwrap_or_else(|err| {
                 log::warn!("ignoring unreadable settings {}: {err}", path.display());
@@ -231,5 +237,26 @@ mod tests {
         assert_eq!(Settings::load_from(&path), Settings::default());
         std::fs::write(&path, "repo = \"/y\"").unwrap();
         assert_eq!(Settings::load_from(&path).repo, "/y");
+    }
+
+    #[test]
+    fn profiles_round_trip_and_an_empty_list_gets_a_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        let mut settings = Settings::default();
+        settings.analysis.save_host = true;
+        settings.analysis.active_mut().model = "qwen3".into();
+        settings.analysis.add_copy();
+        settings.analysis.rename_active("Claude").unwrap();
+        settings.analysis.active_mut().endpoint = crate::analysis::Endpoint::Openai;
+        settings.save_to(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[[analysis.profiles]]"), "{text}");
+        assert_eq!(Settings::load_from(&path), settings);
+
+        std::fs::write(&path, "[analysis]\nactive = \"x\"\nprofiles = []\n").unwrap();
+        let loaded = Settings::load_from(&path).analysis;
+        assert_eq!(loaded.names(), ["Default"]);
+        assert_eq!(loaded.active, "Default");
     }
 }

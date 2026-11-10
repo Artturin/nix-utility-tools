@@ -89,6 +89,8 @@ pub enum AutoTiming {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AnalyzerSettings {
+    /// What the profile is called; unique among the profiles.
+    pub name: String,
     pub endpoint: Endpoint,
     /// Empty: the endpoint's default address.
     pub host: String,
@@ -108,14 +110,12 @@ pub struct AnalyzerSettings {
     /// At most this many packages per run are analyzed automatically; 0 for
     /// no cap.
     pub auto_cap: u32,
-    /// Write the host into saved analyses. Off: a results directory may be
-    /// shared, and an internal host name would leak.
-    pub save_host: bool,
 }
 
 impl Default for AnalyzerSettings {
     fn default() -> Self {
         Self {
+            name: DEFAULT_PROFILE.to_owned(),
             endpoint: Endpoint::Ollama,
             host: String::new(),
             model: String::new(),
@@ -126,7 +126,134 @@ impl Default for AnalyzerSettings {
             auto_analyze: false,
             auto_timing: AutoTiming::AfterRun,
             auto_cap: 25,
+        }
+    }
+}
+
+const DEFAULT_PROFILE: &str = "Default";
+
+/// The analysis profiles, which one is used, and what is shared by all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AnalysisPrefs {
+    /// The name of the profile in use.
+    pub active: String,
+    /// Write the host into saved analyses. Off: a results directory may be
+    /// shared, and an internal host name would leak.
+    pub save_host: bool,
+    pub profiles: Vec<AnalyzerSettings>,
+}
+
+impl Default for AnalysisPrefs {
+    fn default() -> Self {
+        Self {
+            active: DEFAULT_PROFILE.to_owned(),
             save_host: false,
+            profiles: vec![AnalyzerSettings::default()],
+        }
+    }
+}
+
+impl AnalysisPrefs {
+    fn position(&self, name: &str) -> Option<usize> {
+        self.profiles.iter().position(|p| p.name == name)
+    }
+
+    fn active_index(&self) -> usize {
+        self.position(&self.active).unwrap_or(0)
+    }
+
+    /// The profile in use. There is always one after [`Self::normalize`].
+    pub fn active(&self) -> &AnalyzerSettings {
+        &self.profiles[self.active_index()]
+    }
+
+    pub fn active_mut(&mut self) -> &mut AnalyzerSettings {
+        let index = self.active_index();
+        &mut self.profiles[index]
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.profiles.iter().map(|p| p.name.clone()).collect()
+    }
+
+    /// Use the profile called `name`; false when there is none.
+    pub fn select(&mut self, name: &str) -> bool {
+        let known = self.position(name).is_some();
+        if known {
+            self.active = name.to_owned();
+        }
+        known
+    }
+
+    /// `base`, or `base 2`, `base 3`… whichever is free.
+    fn unique_name(&self, base: &str) -> String {
+        let base = base.trim();
+        let base = if base.is_empty() {
+            DEFAULT_PROFILE
+        } else {
+            base
+        };
+        if self.position(base).is_none() {
+            return base.to_owned();
+        }
+        (2..)
+            .map(|n| format!("{base} {n}"))
+            .find(|name| self.position(name).is_none())
+            .expect("an unused name")
+    }
+
+    /// Copy the active profile under a new name and use the copy.
+    pub fn add_copy(&mut self) -> String {
+        let mut copy = self.active().clone();
+        copy.name = self.unique_name(&copy.name);
+        self.active = copy.name.clone();
+        self.profiles.push(copy);
+        self.active.clone()
+    }
+
+    /// Delete the active profile and use its neighbour; never the last one.
+    pub fn remove_active(&mut self) -> bool {
+        if self.profiles.len() <= 1 {
+            return false;
+        }
+        let index = self.active_index();
+        self.profiles.remove(index);
+        self.active = self.profiles[index.min(self.profiles.len() - 1)]
+            .name
+            .clone();
+        true
+    }
+
+    pub fn rename_active(&mut self, name: &str) -> Result<(), &'static str> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("A profile needs a name");
+        }
+        if self
+            .position(name)
+            .is_some_and(|i| i != self.active_index())
+        {
+            return Err("Another profile has this name");
+        }
+        self.active_mut().name = name.to_owned();
+        self.active = name.to_owned();
+        Ok(())
+    }
+
+    /// Make a hand-edited or empty list usable: at least one profile, unique
+    /// non-empty names, and an active profile that exists.
+    pub fn normalize(&mut self) {
+        if self.profiles.is_empty() {
+            self.profiles.push(AnalyzerSettings::default());
+        }
+        let profiles = std::mem::take(&mut self.profiles);
+        for mut profile in profiles {
+            profile.name = self.unique_name(&profile.name);
+            self.profiles.push(profile);
+        }
+        if self.position(&self.active).is_none() {
+            self.active = self.profiles[0].name.clone();
         }
     }
 }
@@ -437,6 +564,60 @@ mod tests {
             endpoint,
             ..AnalyzerSettings::default()
         }
+    }
+
+    fn named(name: &str, model: &str) -> AnalyzerSettings {
+        AnalyzerSettings {
+            name: name.into(),
+            model: model.into(),
+            ..AnalyzerSettings::default()
+        }
+    }
+
+    #[test]
+    fn profiles_are_copied_renamed_and_removed() {
+        let mut prefs = AnalysisPrefs::default();
+        prefs.active_mut().model = "qwen3".into();
+        assert_eq!(prefs.add_copy(), "Default 2");
+        assert_eq!(prefs.active().model, "qwen3");
+        assert_eq!(
+            prefs.rename_active("Default"),
+            Err("Another profile has this name")
+        );
+        assert_eq!(prefs.rename_active("  "), Err("A profile needs a name"));
+        prefs.rename_active(" Claude ").unwrap();
+        prefs.active_mut().model = "claude-opus".into();
+        assert_eq!(prefs.active, "Claude");
+        assert_eq!(prefs.names(), ["Default", "Claude"]);
+        assert!(prefs.select("Default"));
+        assert_eq!(prefs.active().model, "qwen3");
+        assert!(!prefs.select("nope"));
+        assert_eq!(prefs.active, "Default");
+        assert!(prefs.remove_active());
+        assert_eq!(prefs.active().model, "claude-opus");
+        assert!(!prefs.remove_active());
+        assert_eq!(prefs.names(), ["Claude"]);
+    }
+
+    #[test]
+    fn normalize_repairs_hand_edited_profiles() {
+        let mut prefs = AnalysisPrefs {
+            active: "gone".into(),
+            save_host: false,
+            profiles: vec![],
+        };
+        prefs.normalize();
+        assert_eq!(prefs.names(), ["Default"]);
+        assert_eq!(prefs.active, "Default");
+
+        let mut prefs = AnalysisPrefs {
+            active: "Local 2".into(),
+            save_host: false,
+            profiles: vec![named("Local", "a"), named("Local", "b"), named("", "c")],
+        };
+        prefs.normalize();
+        assert_eq!(prefs.names(), ["Local", "Local 2", "Default"]);
+        assert_eq!(prefs.active().model, "b");
     }
 
     #[test]

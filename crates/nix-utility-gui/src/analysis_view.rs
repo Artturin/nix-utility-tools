@@ -183,8 +183,11 @@ impl AnalysisPane {
                 detail = if settings.configured() {
                     settings.limit_text()
                 } else {
-                    "No model is configured yet. Choose a server and model in the preferences."
-                        .into()
+                    format!(
+                        "Profile “{}” has no model yet. Choose a server and model in the \
+                         preferences.",
+                        settings.name
+                    )
                 };
             }
             State::Queued => {
@@ -192,7 +195,7 @@ impl AnalysisPane {
                 waiting = true;
             }
             State::Running { answer, .. } => {
-                heading = format!("Analysing with {}…", settings.model);
+                heading = format!("Analysing with {} ({})…", settings.model, settings.name);
                 detail = answer.clone();
                 busy = true;
             }
@@ -259,6 +262,10 @@ impl AnalysisPane {
             detail.push_str(&settings.context_advice());
         }
 
+        if !matches!(view.state, State::Done(_)) {
+            provenance = profile_line(settings);
+        }
+
         self.heading.set_text(&heading);
         self.heading.set_css_classes(&["title-2", css]);
         self.detail.set_text(&detail);
@@ -299,6 +306,20 @@ impl AnalysisPane {
                     || settings.max_diff_bytes().is_none()),
         );
     }
+}
+
+/// Which profile an analysis would use, for every state but a finished one.
+fn profile_line(settings: &AnalyzerSettings) -> String {
+    let model = if settings.configured() {
+        settings.model.as_str()
+    } else {
+        "no model"
+    };
+    format!(
+        "Profile “{}”: {}, {model}",
+        settings.name,
+        settings.endpoint.label()
+    )
 }
 
 fn describe(result: &AnalysisResult) -> String {

@@ -9,7 +9,7 @@ use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::gtk::gio;
 
-use crate::analysis::AnalyzerSettings;
+use crate::analysis::{AnalysisPrefs, AnalyzerSettings};
 use crate::settings::Settings;
 
 #[derive(Clone)]
@@ -27,7 +27,7 @@ pub struct Form {
     timeout: adw::SpinRow,
     dry_run: adw::SwitchRow,
     /// Edited in the preferences window, so the form only carries it along.
-    analyzer: Rc<RefCell<AnalyzerSettings>>,
+    analysis: Rc<RefCell<AnalysisPrefs>>,
 }
 
 const REPO_PLACEHOLDER: &str = "No directory chosen";
@@ -183,7 +183,7 @@ impl Form {
             diffoscope_memory,
             timeout,
             dry_run,
-            analyzer: Rc::default(),
+            analysis: Rc::default(),
         };
         form.write(settings);
         (form, clamp.upcast())
@@ -211,15 +211,25 @@ impl Form {
             .set_value(settings.diffoscope_memory_mib as f64);
         self.timeout.set_value(settings.timeout_minutes as f64);
         self.dry_run.set_active(settings.dry_run);
-        *self.analyzer.borrow_mut() = settings.analyzer.clone();
+        *self.analysis.borrow_mut() = settings.analysis.clone();
     }
 
+    /// The profile in use.
     pub fn analyzer(&self) -> AnalyzerSettings {
-        self.analyzer.borrow().clone()
+        self.analysis.borrow().active().clone()
     }
 
-    pub fn set_analyzer(&self, settings: AnalyzerSettings) {
-        *self.analyzer.borrow_mut() = settings;
+    pub fn analysis(&self) -> AnalysisPrefs {
+        self.analysis.borrow().clone()
+    }
+
+    pub fn set_analysis(&self, prefs: AnalysisPrefs) {
+        *self.analysis.borrow_mut() = prefs;
+    }
+
+    /// Use the profile called `name`; false when there is none.
+    pub fn select_profile(&self, name: &str) -> bool {
+        self.analysis.borrow_mut().select(name)
     }
 
     pub fn read(&self) -> Settings {
@@ -234,7 +244,7 @@ impl Form {
             timeout_minutes: self.timeout.value() as u64,
             output_dir: self.output_dir.borrow().clone(),
             dry_run: self.dry_run.is_active(),
-            analyzer: self.analyzer.borrow().clone(),
+            analysis: self.analysis.borrow().clone(),
         }
     }
 }
