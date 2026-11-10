@@ -136,13 +136,6 @@ pub struct Package {
     pub thinking: String,
 }
 
-/// The build log diff of a package, as it is sent to the model.
-pub struct DiffText {
-    pub text: String,
-    /// The whole diff, even when only the start is kept for display.
-    pub bytes: usize,
-}
-
 impl Package {
     pub fn has_differences(&self) -> bool {
         self.outputs.iter().any(|o| o.status == Status::Different)
@@ -238,8 +231,8 @@ impl Results {
         self.packages.iter().position(|p| p.attr == attr)
     }
 
-    /// The difflog of package `index` when it has differences to analyze.
-    pub fn diff_text(&mut self, index: usize) -> Option<DiffText> {
+    /// The difflog of package `index`, when it has differences to analyze.
+    fn analyzable_difflog(&mut self, index: usize) -> Option<&mut ToolOutput> {
         let output = self
             .packages
             .get_mut(index)?
@@ -247,9 +240,35 @@ impl Results {
             .iter_mut()
             .find(|o| o.tool == Tool::Difflog && o.status == Status::Different)?;
         output.ensure_loaded();
-        Some(DiffText {
-            text: output.text.text(),
-            bytes: output.text.total(),
+        Some(output)
+    }
+
+    /// The size of the whole build log diff of package `index`, even when
+    /// only its start is kept for display.
+    pub fn diff_bytes(&mut self, index: usize) -> Option<usize> {
+        Some(self.analyzable_difflog(index)?.text.total())
+    }
+
+    /// The whole build log diff of package `index`, as it is sent to the
+    /// model. Beyond what is kept for display it is read from disk.
+    pub fn diff_text(&mut self, index: usize) -> Option<String> {
+        let dir = self.saved_dir.clone();
+        let attr = self.packages.get(index)?.attr.clone();
+        let output = self.analyzable_difflog(index)?;
+        if !output.text.truncated() {
+            return Some(output.text.text());
+        }
+        let file = output
+            .file
+            .clone()
+            .or_else(|| Some(saved_file(dir.as_deref()?, &attr, output)));
+        let whole = file.and_then(|file| fs::read(file).ok());
+        Some(match whole {
+            Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            None => {
+                log::warn!("the whole diff of {attr} is not on disk; sending its start");
+                output.text.text()
+            }
         })
     }
 
@@ -543,9 +562,22 @@ mod tests {
         results.apply(&output(Tool::Difflog, "-x\n+y\n"));
         assert!(results.diff_text(0).is_none(), "still running");
         results.apply(&finished(Tool::Difflog, None, ToolStatus::Different));
-        let diff = results.diff_text(0).unwrap();
-        assert_eq!((diff.text.as_str(), diff.bytes), ("-x\n+y\n", 6));
+        assert_eq!(results.diff_text(0).as_deref(), Some("-x\n+y\n"));
+        assert_eq!(results.diff_bytes(0), Some(6));
         assert!(results.diff_text(1).is_none());
+    }
+
+    #[test]
+    fn a_diff_over_the_display_cap_is_sent_whole_from_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("differences-x");
+        fs::create_dir_all(dir.join("a")).unwrap();
+        let whole = "+x\n".repeat(DISPLAY_CAP / 3 + 10);
+        fs::write(dir.join("a/difflog"), &whole).unwrap();
+        let mut results = Results::load(&dir).unwrap();
+        assert_eq!(results.diff_bytes(0), Some(whole.len()));
+        assert!(results.packages[0].outputs[0].text.truncated());
+        assert_eq!(results.diff_text(0).unwrap(), whole);
     }
 
     #[test]

@@ -66,6 +66,7 @@ pub fn show(
     initial: AnalyzerSettings,
     keys: Arc<dyn KeyStore>,
     on_change: impl Fn(AnalyzerSettings) + 'static,
+    on_closed: impl Fn() + 'static,
 ) {
     let state = Rc::new(RefCell::new(initial.clone()));
     let dialog = adw::PreferencesDialog::builder()
@@ -458,5 +459,7 @@ pub fn show(
         });
     }
 
+    // Every keystroke is a change; saving waits until the dialog is closed.
+    dialog.connect_closed(move |_| on_closed());
     dialog.present(Some(window));
 }
