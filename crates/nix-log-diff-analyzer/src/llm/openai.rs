@@ -51,9 +51,15 @@ impl OpenAiClient {
         self.label
     }
 
-    /// Human-readable description of where requests go.
+    /// Human-readable description of where requests go, without any
+    /// credentials or query the address carries.
     pub fn describe(&self) -> String {
-        format!("{} at {}", self.label, self.base)
+        let mut shown = self.base.clone();
+        // Only fails for URLs that cannot carry credentials, which then have none.
+        let _ = shown.set_username("");
+        let _ = shown.set_password(None);
+        shown.set_query(None);
+        format!("{} at {shown}", self.label)
     }
 
     /// Scheme, host and port only: safe to show or save, unlike the URL which
@@ -128,14 +134,22 @@ impl OpenAiClient {
             }),
         };
 
-        let send = self
+        let request = self
             .authorized(self.client.post(self.url("chat/completions")?))
-            .json(&request)
-            .send();
+            .json(&request);
+        // Reading an error body is part of the wait too, so it is cancellable
+        // and bounded by the idle timeout like the rest.
+        let send = async {
+            let response = request
+                .send()
+                .await
+                .with_context(|| format!("sending chat request to {}", self.label))?;
+            ensure_success(response)
+                .await
+                .with_context(|| format!("{} rejected the chat request", self.label))
+        };
         let response = match step(cancel, self.idle, send).await {
-            Step::Done(response) => {
-                response.with_context(|| format!("sending chat request to {}", self.label))?
-            }
+            Step::Done(response) => response?,
             Step::Cancelled => {
                 return Ok(Generation {
                     cancelled: true,
@@ -144,9 +158,6 @@ impl OpenAiClient {
             }
             Step::TimedOut => bail!("{} did not start answering in time", self.label),
         };
-        let response = ensure_success(response)
-            .await
-            .with_context(|| format!("{} rejected the chat request", self.label))?;
 
         stream::read_generation(
             response.bytes_stream(),
@@ -271,6 +282,22 @@ mod tests {
         assert_eq!(
             origin(&parse_host("localhost", Some(11434)).unwrap()),
             "http://localhost:11434"
+        );
+    }
+
+    #[test]
+    fn the_description_leaves_out_credentials() {
+        let client = OpenAiClient::new(
+            "test",
+            "https://user:secret@example.org/v1beta/openai/?key=abc",
+            None,
+            None,
+            Timeouts::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            client.describe(),
+            "test at https://example.org/v1beta/openai/"
         );
     }
 
