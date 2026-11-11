@@ -200,7 +200,7 @@
         );
 
       # The crate that `nix build`/`nix run` use without an attribute
-      defaultCrate = "nix-log-diff-analyzer";
+      defaultCrate = "nix-utility-gui";
     in
     utils.lib.eachDefaultSystem (
       system:
