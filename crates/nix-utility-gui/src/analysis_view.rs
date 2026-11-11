@@ -2,7 +2,7 @@
 //! and what to do next. Built once per shown package and updated in place, so
 //! streamed text does not rebuild the whole page.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 
 use relm4::Sender;
 use relm4::adw;
@@ -13,6 +13,7 @@ use crate::analysis::{
     AnalysisResult, AnalyzerSettings, SizeCheck, Skipped, State, Trigger, Verdict, human_bytes,
 };
 use crate::app::Msg;
+use crate::panes::Follow;
 
 pub struct View<'a> {
     pub state: &'a State,
@@ -31,7 +32,9 @@ pub struct AnalysisPane {
     spinner: gtk::Spinner,
     thinking_box: gtk::Expander,
     thinking: gtk::TextBuffer,
-    thinking_len: Cell<usize>,
+    /// The text in `thinking`, to add only what streamed in since.
+    thinking_shown: RefCell<String>,
+    thinking_follow: Follow,
     analyze: gtk::Button,
     cancel: gtk::Button,
     anyway: gtk::Button,
@@ -69,6 +72,7 @@ impl AnalysisPane {
             .wrap_mode(gtk::WrapMode::WordChar)
             .css_classes(["dim-label"])
             .build();
+        let thinking_follow = Follow::new(&thinking_view);
         let thinking_box = gtk::Expander::builder()
             .label("Thinking")
             .child(
@@ -160,7 +164,8 @@ impl AnalysisPane {
             spinner,
             thinking_box,
             thinking,
-            thinking_len: Cell::new(0),
+            thinking_shown: RefCell::default(),
+            thinking_follow,
             analyze,
             cancel,
             anyway,
@@ -281,9 +286,19 @@ impl AnalysisPane {
             State::Running { thinking, .. } => thinking.as_str(),
             _ => view.thinking,
         };
-        if thinking.len() != self.thinking_len.get() {
-            self.thinking.set_text(thinking);
-            self.thinking_len.set(thinking.len());
+        let mut shown = self.thinking_shown.borrow_mut();
+        if thinking != shown.as_str() {
+            // Replacing the text would lose the scroll position: add only
+            // what is new when the text has grown.
+            let at_end = self.thinking_follow.at_end();
+            match thinking.strip_prefix(shown.as_str()) {
+                Some(rest) => self.thinking.insert(&mut self.thinking.end_iter(), rest),
+                None => self.thinking.set_text(thinking),
+            }
+            thinking.clone_into(&mut shown);
+            if at_end {
+                self.thinking_follow.scroll_to_end();
+            }
         }
         self.thinking_box.set_visible(!thinking.is_empty());
 

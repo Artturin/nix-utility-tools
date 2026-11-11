@@ -93,10 +93,10 @@ pub struct Widgets {
     progress: gtk::ProgressBar,
     status: gtk::Label,
     log_buffer: gtk::TextBuffer,
-    log_view: gtk::TextView,
+    log_follow: panes::Follow,
     build_header: gtk::Label,
     build_log_buffer: gtk::TextBuffer,
-    build_log_view: gtk::TextView,
+    build_log_follow: panes::Follow,
     list: gtk::ListBox,
     same_list: gtk::ListBox,
     same_expander: gtk::Expander,
@@ -412,7 +412,7 @@ impl SimpleComponent for App {
             .css_classes(["dim-label"])
             .build();
         let log_buffer = panes::log_buffer();
-        let (log_scroller, log_view) = panes::log_view(&log_buffer);
+        let (log_scroller, log_follow) = panes::log_view(&log_buffer);
         log_scroller.set_size_request(-1, 150);
         let build_header = gtk::Label::builder()
             .label("Build log")
@@ -422,7 +422,7 @@ impl SimpleComponent for App {
             .margin_start(6)
             .build();
         let build_log_buffer = panes::log_buffer();
-        let (build_log_scroller, build_log_view) = panes::log_view(&build_log_buffer);
+        let (build_log_scroller, build_log_follow) = panes::log_view(&build_log_buffer);
         build_log_scroller.set_size_request(-1, 150);
         let build_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
         build_box.append(&build_header);
@@ -698,10 +698,10 @@ impl SimpleComponent for App {
             progress,
             status,
             log_buffer,
-            log_view,
+            log_follow,
             build_header,
             build_log_buffer,
-            build_log_view,
+            build_log_follow,
             list,
             same_list,
             same_expander,
@@ -1010,7 +1010,7 @@ impl SimpleComponent for App {
         if !lines.is_empty() {
             panes::append_log(
                 &widgets.log_buffer,
-                &widgets.log_view,
+                &widgets.log_follow,
                 &lines,
                 panes::LOG_LINES,
             );
@@ -1019,7 +1019,7 @@ impl SimpleComponent for App {
         if !lines.is_empty() {
             panes::append_log(
                 &widgets.build_log_buffer,
-                &widgets.build_log_view,
+                &widgets.build_log_follow,
                 &lines,
                 panes::BUILD_LOG_LINES,
             );

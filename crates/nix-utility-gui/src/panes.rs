@@ -1,6 +1,8 @@
 //! Building the views that show results.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use diff_nixpkgs_attr_core::Tool;
 use relm4::adw;
@@ -315,13 +317,59 @@ pub fn log_buffer() -> gtk::TextBuffer {
     buffer
 }
 
-pub fn log_view(buffer: &gtk::TextBuffer) -> (gtk::Widget, gtk::TextView) {
-    let view = text_view(buffer);
-    (scrolled(&view).upcast(), view)
+/// Keeps a text view at its end as text is added, unless the user has
+/// scrolled up to read something.
+#[derive(Clone)]
+pub struct Follow {
+    view: gtk::TextView,
+    /// A scroll to the end is waiting for the new text to be laid out.
+    pending: Rc<Cell<bool>>,
 }
 
-/// Append to a log, keeping at most `keep` lines.
-pub fn append_log(buffer: &gtk::TextBuffer, view: &gtk::TextView, lines: &[Line], keep: i32) {
+impl Follow {
+    pub fn new(view: &gtk::TextView) -> Self {
+        Self {
+            view: view.clone(),
+            pending: Rc::default(),
+        }
+    }
+
+    /// Whether the view shows its end. Ask before adding text: afterwards
+    /// the end has moved.
+    pub fn at_end(&self) -> bool {
+        self.pending.get()
+            || self
+                .view
+                .vadjustment()
+                .is_none_or(|a| a.value() >= a.upper() - a.page_size() - 1.0)
+    }
+
+    /// Scroll to the end once new text is laid out: scrolling right away uses
+    /// the old line heights and stops short of the end.
+    pub fn scroll_to_end(&self) {
+        if self.pending.replace(true) {
+            return;
+        }
+        let this = self.clone();
+        glib::idle_add_local_full(glib::Priority::LOW, move || {
+            this.pending.set(false);
+            if let Some(adjustment) = this.view.vadjustment() {
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+            }
+            glib::ControlFlow::Break
+        });
+    }
+}
+
+pub fn log_view(buffer: &gtk::TextBuffer) -> (gtk::Widget, Follow) {
+    let view = text_view(buffer);
+    (scrolled(&view).upcast(), Follow::new(&view))
+}
+
+/// Append to a log, keeping at most `keep` lines. The view follows the end
+/// only if it was showing it.
+pub fn append_log(buffer: &gtk::TextBuffer, follow: &Follow, lines: &[Line], keep: i32) {
+    let at_end = follow.at_end();
     for line in lines {
         let start = buffer.end_iter().offset();
         buffer.insert(&mut buffer.end_iter(), &format!("{}\n", line.text));
@@ -335,13 +383,7 @@ pub fn append_log(buffer: &gtk::TextBuffer, view: &gtk::TextView, lines: &[Line]
     {
         buffer.delete(&mut buffer.start_iter(), &mut to);
     }
-    // Scroll once the new lines are laid out: scrolling to a mark right away
-    // uses the old line heights and stops short of the end on a burst.
-    let view = view.clone();
-    glib::idle_add_local_full(glib::Priority::LOW, move || {
-        if let Some(adjustment) = view.vadjustment() {
-            adjustment.set_value(adjustment.upper() - adjustment.page_size());
-        }
-        glib::ControlFlow::Break
-    });
+    if at_end {
+        follow.scroll_to_end();
+    }
 }
