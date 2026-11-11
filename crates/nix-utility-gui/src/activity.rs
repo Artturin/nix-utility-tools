@@ -1,7 +1,7 @@
 //! The run's progress as the user sees it: log lines and a progress bar.
 
 use diff_nixpkgs_attr_core::build::BuildEvent;
-use diff_nixpkgs_attr_core::{Collected, Event, Level, Stage, ToolStatus};
+use diff_nixpkgs_attr_core::{Collected, Event, Level, Side, Stage, ToolStatus, strip_sgr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -120,6 +120,81 @@ pub fn describe(event: &Event) -> Option<Line> {
     }
 }
 
+/// Length of the hash part of a store path name.
+const HASH_LEN: usize = 32;
+
+/// A derivation's name without the store directory, hash and `.drv`, e.g.
+/// `hello-2.12` for `/nix/store/<hash>-hello-2.12.drv`.
+pub fn drv_name(drv: &str) -> &str {
+    let base = drv.rsplit('/').next().unwrap_or(drv);
+    let base = base.strip_suffix(".drv").unwrap_or(base);
+    match base.get(HASH_LEN..) {
+        Some(rest) if rest.starts_with('-') && rest.len() > 1 => &rest[1..],
+        _ => base,
+    }
+}
+
+/// Running derivations shown in the build header before "+N more".
+const SHOWN_BUILDS: usize = 3;
+
+/// What the builders are doing: their output and which are running.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Builds {
+    side: Option<Side>,
+    /// Names of the running derivations, in start order.
+    running: Vec<String>,
+}
+
+impl Builds {
+    /// Track the event; returns the line it adds to the build log, if any.
+    pub fn apply(&mut self, event: &Event) -> Option<Line> {
+        let Event::Build { side, event } = event else {
+            return None;
+        };
+        match event {
+            BuildEvent::Started { drv } => {
+                self.side = Some(*side);
+                self.running.push(drv_name(drv).to_owned());
+                None
+            }
+            BuildEvent::Finished { drv } => {
+                let name = drv_name(drv);
+                if let Some(i) = self.running.iter().position(|n| n == name) {
+                    self.running.remove(i);
+                }
+                None
+            }
+            BuildEvent::Log { drv, line: text } => line(
+                Kind::Plain,
+                format!("{}> {}", drv_name(drv), strip_sgr(text)),
+            ),
+            // Build failures, next to the output that led to them.
+            BuildEvent::Message { level: 0, text } => line(Kind::Error, text.clone()),
+            _ => None,
+        }
+    }
+
+    /// Nothing is building any more (the run ended).
+    pub fn stop(&mut self) {
+        self.running.clear();
+    }
+
+    /// The build pane's header.
+    pub fn summary(&self) -> String {
+        let (Some(side), false) = (self.side, self.running.is_empty()) else {
+            return "Build log".to_owned();
+        };
+        let shown = self.running[..self.running.len().min(SHOWN_BUILDS)].join(", ");
+        let more = self.running.len().saturating_sub(SHOWN_BUILDS);
+        let more = if more > 0 {
+            format!(" (+{more} more)")
+        } else {
+            String::new()
+        };
+        format!("Building the {} side: {shown}{more}", side.short_label())
+    }
+}
+
 /// The one-line status and the progress bar.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Activity {
@@ -176,7 +251,7 @@ impl Activity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_nixpkgs_attr_core::{Notice, Side, Tool};
+    use diff_nixpkgs_attr_core::{Notice, Tool};
 
     #[test]
     fn notices_keep_their_severity() {
@@ -249,5 +324,69 @@ mod tests {
         });
         assert_eq!(activity.fraction, None);
         assert!(activity.status.contains("300 jobs"));
+    }
+    const DRV: &str = "/nix/store/zwkkghilp2s5g1ds47gams5f8j2klqy6-hello-2.12.drv";
+
+    fn build(event: BuildEvent) -> Event {
+        Event::Build {
+            side: Side::Head,
+            event,
+        }
+    }
+
+    #[test]
+    fn derivation_names_lose_the_store_path() {
+        assert_eq!(drv_name(DRV), "hello-2.12");
+        assert_eq!(drv_name("not-a-store-path"), "not-a-store-path");
+        assert_eq!(drv_name(""), "");
+    }
+
+    #[test]
+    fn builder_output_is_prefixed_with_the_derivation() {
+        let mut builds = Builds::default();
+        let line = builds
+            .apply(&build(BuildEvent::Log {
+                drv: DRV.into(),
+                line: "\x1b[1mcompiling\x1b[0m main.c".into(),
+            }))
+            .unwrap();
+        assert_eq!(line.text, "hello-2.12> compiling main.c");
+        assert_eq!(line.kind, Kind::Plain);
+        let error = builds.apply(&build(BuildEvent::Message {
+            level: 0,
+            text: "builder failed".into(),
+        }));
+        assert_eq!(error.unwrap().kind, Kind::Error);
+        assert_eq!(
+            builds.apply(&build(BuildEvent::Progress {
+                done: 0,
+                expected: 1,
+                running: 1,
+                failed: 0
+            })),
+            None
+        );
+        assert_eq!(
+            builds.apply(&build(BuildEvent::Started { drv: DRV.into() })),
+            None
+        );
+    }
+
+    #[test]
+    fn the_header_lists_running_builds() {
+        let mut builds = Builds::default();
+        assert_eq!(builds.summary(), "Build log");
+        for name in ["a", "b"] {
+            builds.apply(&build(BuildEvent::Started { drv: name.into() }));
+        }
+        assert_eq!(builds.summary(), "Building the new side: a, b");
+        for name in ["c", "d", "e"] {
+            builds.apply(&build(BuildEvent::Started { drv: name.into() }));
+        }
+        assert_eq!(builds.summary(), "Building the new side: a, b, c (+2 more)");
+        builds.apply(&build(BuildEvent::Finished { drv: "a".into() }));
+        assert_eq!(builds.summary(), "Building the new side: b, c, d (+1 more)");
+        builds.stop();
+        assert_eq!(builds.summary(), "Build log");
     }
 }

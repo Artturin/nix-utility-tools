@@ -7,7 +7,7 @@ use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::gtk::glib::translate::IntoGlib;
-use relm4::gtk::{gio, pango};
+use relm4::gtk::{gio, glib, pango};
 use sourceview5::prelude::*;
 
 use crate::activity::{Kind, Line};
@@ -16,7 +16,9 @@ use crate::ansi::{self, Style};
 use crate::results::{DISPLAY_CAP, Package, Status, ToolOutput};
 
 /// Lines kept in the run log.
-const LOG_LINES: i32 = 5000;
+pub const LOG_LINES: i32 = 5000;
+/// Lines kept in the build log; builders can be chatty.
+pub const BUILD_LOG_LINES: i32 = 3000;
 
 pub fn is_dark() -> bool {
     adw::StyleManager::default().is_dark()
@@ -318,7 +320,8 @@ pub fn log_view(buffer: &gtk::TextBuffer) -> (gtk::Widget, gtk::TextView) {
     (scrolled(&view).upcast(), view)
 }
 
-pub fn append_log(buffer: &gtk::TextBuffer, view: &gtk::TextView, lines: &[Line]) {
+/// Append to a log, keeping at most `keep` lines.
+pub fn append_log(buffer: &gtk::TextBuffer, view: &gtk::TextView, lines: &[Line], keep: i32) {
     for line in lines {
         let start = buffer.end_iter().offset();
         buffer.insert(&mut buffer.end_iter(), &format!("{}\n", line.text));
@@ -326,13 +329,19 @@ pub fn append_log(buffer: &gtk::TextBuffer, view: &gtk::TextView, lines: &[Line]
             buffer.apply_tag_by_name(tag, &buffer.iter_at_offset(start), &buffer.end_iter());
         }
     }
-    let excess = buffer.line_count() - LOG_LINES;
+    let excess = buffer.line_count() - keep;
     if excess > 0
         && let Some(mut to) = buffer.iter_at_line(excess)
     {
         buffer.delete(&mut buffer.start_iter(), &mut to);
     }
-    let mark = buffer.create_mark(None, &buffer.end_iter(), false);
-    view.scroll_mark_onscreen(&mark);
-    buffer.delete_mark(&mark);
+    // Scroll once the new lines are laid out: scrolling to a mark right away
+    // uses the old line heights and stops short of the end on a burst.
+    let view = view.clone();
+    glib::idle_add_local_full(glib::Priority::LOW, move || {
+        if let Some(adjustment) = view.vadjustment() {
+            adjustment.set_value(adjustment.upper() - adjustment.page_size());
+        }
+        glib::ControlFlow::Break
+    });
 }

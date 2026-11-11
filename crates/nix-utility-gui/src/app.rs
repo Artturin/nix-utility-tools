@@ -16,7 +16,7 @@ use relm4::gtk;
 use relm4::gtk::{gio, glib};
 use relm4::prelude::*;
 
-use crate::activity::{Activity, Kind, Line, describe};
+use crate::activity::{Activity, Builds, Kind, Line, describe};
 use crate::analysis::{
     self, AnalysisPrefs, AnalysisResult, AnalyzerSettings, AutoTiming, SizeCheck, Skipped, State,
     Trigger,
@@ -69,6 +69,8 @@ pub struct App {
     activity: Activity,
     // What the view has yet to show.
     log: RefCell<Vec<Line>>,
+    builds: Builds,
+    build_log: RefCell<Vec<Line>>,
     clear_log: Cell<bool>,
     list_dirty: Cell<bool>,
     expand_same: Cell<bool>,
@@ -92,6 +94,9 @@ pub struct Widgets {
     status: gtk::Label,
     log_buffer: gtk::TextBuffer,
     log_view: gtk::TextView,
+    build_header: gtk::Label,
+    build_log_buffer: gtk::TextBuffer,
+    build_log_view: gtk::TextView,
     list: gtk::ListBox,
     same_list: gtk::ListBox,
     same_expander: gtk::Expander,
@@ -398,7 +403,8 @@ impl SimpleComponent for App {
         let tools = Preflight::check();
         let (form, form_widget) = Form::new(&window, &settings);
 
-        // Run page: the form above, progress and the log below.
+        // Run page: the form above, progress and the logs below (the run's
+        // on the left, the builders' on the right).
         let progress = gtk::ProgressBar::builder().margin_top(6).build();
         let status = gtk::Label::builder()
             .xalign(0.0)
@@ -408,6 +414,30 @@ impl SimpleComponent for App {
         let log_buffer = panes::log_buffer();
         let (log_scroller, log_view) = panes::log_view(&log_buffer);
         log_scroller.set_size_request(-1, 150);
+        let build_header = gtk::Label::builder()
+            .label("Build log")
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["caption", "dim-label"])
+            .margin_start(6)
+            .build();
+        let build_log_buffer = panes::log_buffer();
+        let (build_log_scroller, build_log_view) = panes::log_view(&build_log_buffer);
+        build_log_scroller.set_size_request(-1, 150);
+        let build_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        build_box.append(&build_header);
+        build_box.append(&build_log_scroller);
+        let logs = gtk::Paned::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .start_child(&log_scroller)
+            .end_child(&build_box)
+            .resize_start_child(true)
+            .resize_end_child(true)
+            .shrink_start_child(false)
+            .shrink_end_child(false)
+            .wide_handle(true)
+            .vexpand(true)
+            .build();
         let activity_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
         for margin in [
             activity_box.clone().upcast::<gtk::Widget>(),
@@ -418,7 +448,7 @@ impl SimpleComponent for App {
         }
         activity_box.append(&progress);
         activity_box.append(&status);
-        activity_box.append(&log_scroller);
+        activity_box.append(&logs);
         activity_box.set_margin_bottom(12);
         let form_scroller = gtk::ScrolledWindow::builder()
             .child(&form_widget)
@@ -645,6 +675,8 @@ impl SimpleComponent for App {
             selected: None,
             activity: Activity::default(),
             log: RefCell::new(Vec::new()),
+            builds: Builds::default(),
+            build_log: RefCell::new(Vec::new()),
             clear_log: Cell::new(false),
             list_dirty: Cell::new(false),
             expand_same: Cell::new(false),
@@ -667,6 +699,9 @@ impl SimpleComponent for App {
             status,
             log_buffer,
             log_view,
+            build_header,
+            build_log_buffer,
+            build_log_view,
             list,
             same_list,
             same_expander,
@@ -709,6 +744,7 @@ impl SimpleComponent for App {
                 self.queue.reset();
                 *self.results.borrow_mut() = Results::default();
                 self.activity = Activity::default();
+                self.builds = Builds::default();
                 self.selected = None;
                 self.clear_log.set(true);
                 self.list_dirty.set(true);
@@ -734,6 +770,9 @@ impl SimpleComponent for App {
                 self.activity.apply(&event);
                 if let Some(line) = describe(&event) {
                     self.log.borrow_mut().push(line);
+                }
+                if let Some(line) = self.builds.apply(&event) {
+                    self.build_log.borrow_mut().push(line);
                 }
                 let changed = self.results.borrow_mut().apply(&event);
                 if changed {
@@ -772,6 +811,7 @@ impl SimpleComponent for App {
             }
             Msg::Finished(result) => {
                 *self.token.borrow_mut() = None;
+                self.builds.stop();
                 match result {
                     Ok(report) => {
                         self.activity.status = match report.status {
@@ -964,11 +1004,27 @@ impl SimpleComponent for App {
 
         if self.clear_log.take() {
             widgets.log_buffer.set_text("");
+            widgets.build_log_buffer.set_text("");
         }
         let lines = std::mem::take(&mut *self.log.borrow_mut());
         if !lines.is_empty() {
-            panes::append_log(&widgets.log_buffer, &widgets.log_view, &lines);
+            panes::append_log(
+                &widgets.log_buffer,
+                &widgets.log_view,
+                &lines,
+                panes::LOG_LINES,
+            );
         }
+        let lines = std::mem::take(&mut *self.build_log.borrow_mut());
+        if !lines.is_empty() {
+            panes::append_log(
+                &widgets.build_log_buffer,
+                &widgets.build_log_view,
+                &lines,
+                panes::BUILD_LOG_LINES,
+            );
+        }
+        widgets.build_header.set_text(&self.builds.summary());
         let status = match self.queue.progress() {
             Some((done, total)) if !running => format!("Analysing: {done} of {total} done"),
             _ if !running && analysing => "Analysing…".to_owned(),
