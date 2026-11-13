@@ -199,13 +199,12 @@
           crates // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux linuxCrates
         );
 
-      # The crate that `nix build`/`nix run` use without an attribute
-      defaultCrate = "nix-utility-gui";
     in
     utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        defaultCrate = if pkgs.stdenv.isLinux then "nix-utility-gui" else "diff-nixpkgs-attr";
       in
       {
         packages = {
