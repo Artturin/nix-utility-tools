@@ -58,6 +58,15 @@ const SORTED_RUNS: [&str; 5] = [
     r"(?m)(?:^/nix/store/\S+: interpreter directive changed .*\n)+",
 ];
 
+/// A duration like "12.5s", "640ms", "0s 51ms" or "1m 5s" (yarn's format).
+/// The unit of the last part is not required to end a word, so "3sec"
+/// still matches as "3s" + "ec".
+macro_rules! duration {
+    () => {
+        r"\d+(?:\.\d+)?(?:ms|s|m\b|h\b)(?:[ ]\d+(?:\.\d+)?(?:ms|s|m\b|h\b))*"
+    };
+}
+
 /// (enabled, pattern, replacement), applied in order.
 type Row = (bool, Cow<'static, str>, Cow<'static, str>);
 
@@ -79,9 +88,16 @@ fn rule_table(o: &Options) -> Vec<Row> {
             "${1}20200102-030405",
         ),
         (o.strip_timings, r"(?m)^ ?\d+:\d\d\.\d+ ", "0:00.00 "),
+        // Yarn only prints "└ Completed in 0s 242ms" for steps over 200ms,
+        // so drop the duration from yarn lines altogether.
         (
             o.strip_timings,
-            r"(?i)\b(time: |elapsed: |in )\d+(?:\.\d+)?s",
+            concat!(r"(?m)^(➤ YN\d{4}: [^\n]*?) in ", duration!(), "$"),
+            "${1}",
+        ),
+        (
+            o.strip_timings,
+            concat!(r"(?i)\b(time: |elapsed: |in )", duration!()),
             "${1}0.00s",
         ),
         // CTest durations; the padding before the number varies with its
@@ -109,8 +125,8 @@ fn rule_table(o: &Options) -> Vec<Row> {
         // CMake step timings: "-- Configuring done (14.6s)".
         (
             o.strip_timings,
-            r"(\bdone \()\d+(?:\.\d+)?(s\))",
-            "${1}N${2}",
+            concat!(r"(\bdone \()", duration!(), r"(\))"),
+            "${1}Ns${2}",
         ),
         // Host kernel version printed by CMake.
         (
@@ -122,12 +138,6 @@ fn rule_table(o: &Options) -> Vec<Row> {
             o.strip_kernel_version,
             r#"(\bCMAKE_HOST_SYSTEM_VERSION: ")[^"]+""#,
             "${1}KERNEL_VERSION\"",
-        ),
-        // GN completion timings.
-        (
-            o.strip_timings,
-            r"(?m)^(-- GN Done\. Made .+ in )\d+ms\b",
-            "${1}Nms",
         ),
         // Build IDs, and the file names derived from them.
         (
@@ -163,7 +173,7 @@ fn rule_table(o: &Options) -> Vec<Row> {
         // Qt Test totals.
         (
             o.strip_timings,
-            r"(\bTotals: [^\n]*?, )\d+(?:\.\d+)?ms\b",
+            concat!(r"(\bTotals: [^\n]*?, )", duration!()),
             "${1}Nms",
         ),
         // Job counts and thread/worker counts depend on the build machine.
@@ -437,6 +447,30 @@ mod tests {
         assert_eq!(norm(" 9:59.99 foo\n"), norm("123:45.67 foo\n"));
         assert_eq!(norm("Elapsed: 12.5s\n"), "Elapsed: 0.00s\n");
         assert_eq!(norm("finished in 3s\n"), "finished in 0.00s\n");
+        assert_eq!(norm("success in 640ms\n"), "success in 0.00s\n");
+        assert_eq!(norm("success in 0.00s\n"), "success in 0.00s\n");
+        assert_eq!(norm("done in 0s 51ms!\n"), "done in 0.00s!\n");
+        assert_eq!(norm("done in 1m 5s\n"), "done in 0.00s\n");
+        // a word starting with m or h is not a unit
+        assert_eq!(norm("in 5 m\n"), "in 5 m\n");
+        assert_eq!(norm("in 5mb\n"), "in 5mb\n");
+    }
+
+    #[test]
+    fn yarn_durations_are_dropped() {
+        assert_eq!(
+            norm("➤ YN0000: └ Completed in 0s 242ms\n"),
+            "➤ YN0000: └ Completed\n"
+        );
+        assert_eq!(
+            norm("➤ YN0000: │ └ Completed in 1m 3s\n"),
+            "➤ YN0000: │ └ Completed\n"
+        );
+        assert_eq!(
+            norm("➤ YN0000: · Done with warnings in 0s 51ms\n"),
+            "➤ YN0000: · Done with warnings\n"
+        );
+        assert_eq!(norm("➤ YN0000: └ Completed\n"), "➤ YN0000: └ Completed\n");
     }
 
     #[test]
@@ -487,7 +521,7 @@ mod tests {
     fn gn_and_qt_timings() {
         assert_eq!(
             norm("-- GN Done. Made 123 targets in 20890ms\n"),
-            "-- GN Done. Made 123 targets in Nms\n"
+            "-- GN Done. Made 123 targets in 0.00s\n"
         );
         assert_eq!(
             norm("Totals: 5 passed, 0 failed, 0 skipped, 0 blacklisted, 4393ms\n"),

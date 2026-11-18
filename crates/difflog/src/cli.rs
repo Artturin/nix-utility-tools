@@ -24,7 +24,9 @@ symlinks (store paths, installables like nixpkgs#hello) are never altered.
 Normalization includes:
  * replacing all store path hashes with a constant
  * stripping ECMA-48(-style) terminal controls, like colors
- * replacing dates, timestamps, and timings with constants
+ * replacing dates, timestamps, and timings (\"in 640ms\", \"in 0s
+   51ms\", \"elapsed: 1.5s\") with constants (disable with --keep-timings)
+ * removing yarn's durations (\"└ Completed in 0s 242ms\")
    (disable with --keep-timings)
  * removing stdenv phase footers (\"buildPhase completed in 1 minutes
    5 seconds\"); they are only printed for phases of 30s or more, so
@@ -48,8 +50,6 @@ Normalization includes:
    (disable with --keep-paths)
  * replacing CMake step timings (\"-- Configuring done (14.6s)\") with
    \"(Ns)\" (disable with --keep-timings)
- * replacing GN completion timings (\"-- GN Done. Made ... in 20890ms\")
-   with \"Nms\" (disable with --keep-timings)
  * replacing build IDs, both \"build id 36ad3d...\" / \"(build ID 36ad3d...)\"
    in the fixup phase output and in \".build-id/36/ad3d....\" file names,
    with constants
