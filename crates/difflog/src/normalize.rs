@@ -67,6 +67,21 @@ macro_rules! duration {
     };
 }
 
+/// The results meson's test runner prints.
+macro_rules! meson_results {
+    () => {
+        "OK|FAIL|SKIP|TIMEOUT|INTERRUPT|EXPECTEDFAIL|UNEXPECTEDPASS|ERROR|IGNORED"
+    };
+}
+
+/// A meson test result line up to and including the result, as capture
+/// group 1, still open so the caller closes it.
+macro_rules! meson_result {
+    () => {
+        concat!(r"(?m)((?:^|\r) *\d+/\d+ \S+[ ]+(?:", meson_results!(), ")")
+    };
+}
+
 /// (enabled, pattern, replacement), applied in order.
 type Row = (bool, Cow<'static, str>, Cow<'static, str>);
 
@@ -176,6 +191,13 @@ fn rule_table(o: &Options) -> Vec<Row> {
             concat!(r"(\bTotals: [^\n]*?, )", duration!()),
             "${1}Nms",
         ),
+        // Meson test results: " 9/64 suite:name   OK   0.47s". The duration
+        // is right-aligned, so the padding before it is swallowed too.
+        (
+            o.strip_timings,
+            concat!(meson_result!(), r")[ ]+\d+\.\d+s\b"),
+            "${1} Ns",
+        ),
         // Job counts and thread/worker counts depend on the build machine.
         (o.strip_jobs, r"(^|[^\w-])(-j ?)\d+\b", "${1}${2}N"),
         (o.strip_jobs, r"(--jobs[= ])\d+\b", "${1}N"),
@@ -183,6 +205,21 @@ fn rule_table(o: &Options) -> Vec<Row> {
             o.strip_jobs,
             r"\b\d+ parallel (threads?|jobs|workers|processes)\b",
             "N parallel ${1}",
+        ),
+        // Meson's spinner, only drawn when stdout is a tty:
+        // "[10-31/64] 🌔 suite:name   0s\r". The "\x1b[K" that erases it is
+        // gone by now, which would leave it glued to the next line.
+        (
+            o.strip_progress,
+            r"(?m)(^|\r)(?:\[\d+(?:-\d+)?/\d+\] (?:[\x{1F311}-\x{1F318}]|[.:]{2}) [^\r\n]*\r)+",
+            "${1}",
+        ),
+        // Meson numbers results in the order tests finish, and the gap
+        // before the result depends on the widest name.
+        (
+            o.strip_progress,
+            concat!(r"(?m)(^|\r) *\d+/\d+ (\S+)[ ]+(", meson_results!(), r")\b"),
+            "${1}N/N ${2} ${3}",
         ),
         // Progress counters at the start of a line (or after a \r):
         // ninja "[13/17] ", cmake/make "[ 45%] ", CTest " 9/86 Test  #7: ".
@@ -365,7 +402,10 @@ mod tests {
         assert_eq!(norm("/tmp/tmpabc_1234\n"), "/tmp/tmpXXXXXXXX\n");
         // Not 8 characters, or not directly under /build or /tmp: left alone.
         assert_eq!(norm("/build/tmp_install1/x\n"), "/build/tmp_install1/x\n");
-        assert_eq!(norm("/build/src/tmp4omr_7m7/x\n"), "/build/src/tmp4omr_7m7/x\n");
+        assert_eq!(
+            norm("/build/src/tmp4omr_7m7/x\n"),
+            "/build/src/tmp4omr_7m7/x\n"
+        );
         assert_eq!(
             norm("(process:842): Gtk-CRITICAL **: 07:21:29.789: x\n"),
             "(process:N): Gtk-CRITICAL **: HH:MM:SS.mmm: x\n"
@@ -559,6 +599,38 @@ mod tests {
         assert_eq!(norm("[ 3/17] x\n"), "[N/N] x\n");
         assert_eq!(norm("a\r[ 5%] x\n"), "a\r[N%] x\n");
         assert_eq!(norm("see [13/17] here\n"), "see [13/17] here\n");
+        assert_eq!(norm("2: 9/86 Test #7: foo\n"), "2: N/N Test #7: foo\n");
+    }
+
+    #[test]
+    fn meson_test_results() {
+        // The spinner a tty gets, with its "\x1b[K" erasers, is dropped.
+        assert_eq!(
+            norm(concat!(
+                "[8-29/64] \u{1F317} gi:warn-x    0s\r\x1b[K",
+                "[8-30/64] .: gi:warn-x    0s\r\x1b[K",
+                " 8/64 gi:warn-invalid-closure      OK              0.99s\n",
+            )),
+            "N/N gi:warn-invalid-closure OK Ns\n"
+        );
+        assert_eq!(
+            norm("12/64 gi:test_parser.py  FAIL   10.25s   exit status 1\n"),
+            "N/N gi:test_parser.py FAIL Ns   exit status 1\n"
+        );
+        // Only the counter goes when timings are kept, and vice versa.
+        let mut o = opts();
+        o.strip_timings = false;
+        assert_eq!(
+            norm_with(o, " 1/64 gi:a   OK   0.01s\n"),
+            "N/N gi:a OK   0.01s\n"
+        );
+        let mut o = opts();
+        o.strip_progress = false;
+        assert_eq!(
+            norm_with(o, " 1/64 gi:a   OK   0.01s\n"),
+            " 1/64 gi:a   OK Ns\n"
+        );
+        // CTest lines are left to their own rule.
         assert_eq!(norm("2: 9/86 Test #7: foo\n"), "2: N/N Test #7: foo\n");
     }
 

@@ -61,8 +61,13 @@ Normalization includes:
    \"[N%]\", and CTest's \" 9/86 Test  #7:\" -> \"N/N Test  #7:\") at the
    start of lines; both the counter and the total are replaced
    (disable with --keep-progress)
+ * removing meson's test spinner (\"[10-31/64] 🌔 suite:name   0s\"),
+   which is only drawn on a tty, and replacing the counter of meson test
+   results (\" 9/64 suite:name   OK\" -> \"N/N suite:name OK\"), which
+   follows the order tests finish in (disable with --keep-progress)
  * replacing CTest durations (\"Passed    0.02 sec\", \"Total Test time
-   (real) =   3.39 sec\") with \"N sec\" (disable with --keep-timings)
+   (real) =   3.39 sec\") with \"N sec\", and meson test durations
+   (\"OK   0.47s\") with \"Ns\" (disable with --keep-timings)
  * sorting runs of certain common messages, to reduce
    nondeterminism from concurrency
 
@@ -124,7 +129,7 @@ pub struct Cli {
     #[arg(long)]
     pub keep_jobs: bool,
 
-    /// Keep progress counters ("[13/17]", "[ 45%]", CTest counters)
+    /// Keep progress counters ("[13/17]", "[ 45%]", CTest and meson counters, meson's spinner)
     #[arg(long)]
     pub keep_progress: bool,
 
