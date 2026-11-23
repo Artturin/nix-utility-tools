@@ -630,6 +630,17 @@ impl SimpleComponent for App {
             });
         }
         {
+            // A directory given on the command line, to this instance or to
+            // one started later, which hands it over.
+            let sender = sender.clone();
+            relm4::main_application().connect_open(move |app, files, _| {
+                if let Some(path) = files.first().and_then(|file| file.path()) {
+                    sender.input(Msg::Load(path));
+                }
+                app.activate();
+            });
+        }
+        {
             let sender = sender.clone();
             adw::StyleManager::default().connect_dark_notify(move |_| {
                 sender.input(Msg::ThemeChanged);
