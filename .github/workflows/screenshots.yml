@@ -1,0 +1,56 @@
+name: Screenshots
+
+# Retakes the README screenshots of the GUI and publishes them on the
+# `screenshots` branch, as a single commit that replaces the last one, so the
+# images never pile up in master's history. The pixels are reproducible
+# (pinned fonts, cairo renderer), so the branch only moves when the UI or the
+# fixture changed.
+#
+# Lock file and flake bumps do not start it: run it by hand after one that
+# changes how the GUI renders.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - crates/nix-utility-gui/**
+      - crates/diff-nixpkgs-attr-core/**
+      - docs/screenshots/**
+      - scripts/screenshots.sh
+      - .github/workflows/screenshots.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix run --print-build-logs .#screenshots -- "$RUNNER_TEMP/shots"
+      - name: Publish on the screenshots branch
+        working-directory: ${{ runner.temp }}/shots
+        env:
+          GIT_DIR: ${{ github.workspace }}/.git
+          GIT_WORK_TREE: ${{ runner.temp }}/shots
+          GIT_INDEX_FILE: ${{ runner.temp }}/index
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          git add -A
+          tree=$(git write-tree)
+          if git fetch --quiet --depth=1 origin screenshots &&
+            [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$tree" ]; then
+            echo "The screenshots are up to date"
+            exit 0
+          fi
+          commit=$(git commit-tree "$tree" -m "GUI screenshots for ${GITHUB_SHA::7}")
+          git push --force origin "$commit:refs/heads/screenshots"
