@@ -1,0 +1,47 @@
+diff --git a/curl-8.11.1 b/curl-8.11.1
+index 3f1c2a9..8b0e47d 100644
+--- a/curl-8.11.1
++++ b/curl-8.11.1
+@@ -112,12 +112,15 @@ checking for nghttp2 options with pkg-config... found
+ checking for nghttp2_session_get_stream_local_window_size in -lnghttp2... yes
+ checking for nghttp2/nghttp2.h... yes
+-checking for libpsl options with pkg-config... no
+-configure: WARNING: libpsl was not found
++checking for libpsl options with pkg-config... found
++checking for psl_builtin in -lpsl... yes
++checking for libpsl.h... yes
+ checking for libbrotlidec options with pkg-config... found
+ checking for BrotliDecoderDecompress in -lbrotlidec... yes
+ checking for brotli/decode.h... yes
+-checking for ngtcp2 options with pkg-config... no
++checking for ngtcp2 options with pkg-config... found
++checking for ngtcp2_conn_client_new_versioned in -lngtcp2... yes
+ checking whether to enable ECH support... no
+ checking whether to enable HTTPS-RR support... no
+@@ -201,14 +204,14 @@ configure: Configured to build curl/libcurl:
+   SSL:              enabled (OpenSSL v3+)
+   SSH:              enabled (libssh2)
+   zlib:             enabled
+   brotli:           enabled (libbrotlidec)
+   zstd:             enabled (libzstd)
+   GSS-API:          enabled (MIT Kerberos/Heimdal)
+   GSASL:            no      (libgsasl not found)
+   TLS-SRP:          enabled
+   resolver:         POSIX threaded
+   IPv6:             enabled
+   Unix sockets:     enabled
+   IDN:              enabled (libidn2)
+-  PSL:              no      (libpsl not found)
+-  HTTP3:            no      (--with-ngtcp2 --with-quiche --with-msh3 --with-openssl-quic)
++  PSL:              enabled
++  HTTP3:            enabled (ngtcp2 + nghttp3)
+   Protocols:        DICT FILE FTP FTPS GOPHER GOPHERS HTTP HTTPS IMAP IMAPS IPFS IPNS LDAP LDAPS MQTT POP3 POP3S RTSP SCP SFTP SMB SMBS SMTP SMTPS TELNET TFTP WS WSS
+-  Features:         alt-svc AsynchDNS brotli GSS-API HSTS HTTP2 HTTPS-proxy IDN IPv6 Kerberos Largefile libz NTLM SPNEGO SSL threadsafe TLS-SRP UnixSockets zstd
++  Features:         alt-svc AsynchDNS brotli GSS-API HSTS HTTP2 HTTP3 HTTPS-proxy IDN IPv6 Kerberos Largefile libz NTLM PSL SPNEGO SSL threadsafe TLS-SRP UnixSockets zstd
+@@ -1874,7 +1877,7 @@ make[4]: Entering directory '/build/curl-8.11.1/tests/unit'
+ TOTAL: 1574 tests
+-PASS: 1556
+-SKIP: 18
++PASS: 1561
++SKIP: 13
+ FAIL: 0

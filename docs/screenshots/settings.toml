@@ -1,0 +1,27 @@
+repo = "/home/me/src/nixpkgs"
+attrs = "curl python3Packages.requests zlib"
+base = ""
+system = "x86_64-linux"
+workers = 4
+max_eval_memory_mib = 4096
+diffoscope_memory_mib = 0
+timeout_minutes = 0
+output_dir = ""
+dry_run = false
+
+[analysis]
+active = "Local qwen"
+save_host = false
+
+[[analysis.profiles]]
+name = "Local qwen"
+endpoint = "ollama"
+host = ""
+model = "qwen3:30b-a3b"
+context_tokens = 32768
+max_thinking_tokens = 0
+max_output_tokens = 0
+idle_timeout_secs = 600
+auto_analyze = true
+auto_timing = "after-run"
+auto_cap = 25

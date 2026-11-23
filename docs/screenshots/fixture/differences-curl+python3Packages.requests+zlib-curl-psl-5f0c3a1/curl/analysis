@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "verdict": "consequential",
+  "explanation": "configure now finds libpsl and ngtcp2, so curl is built with PSL and HTTP3 support. Both change runtime behaviour: cookies are checked against the Public Suffix List, and --http3 becomes available. libcurl gains three new runtime dependencies, which affects every package that links it.",
+  "model": "qwen3:30b-a3b",
+  "endpoint": "ollama",
+  "timestamp": "2026-11-20T14:32:07Z",
+  "trigger": "auto",
+  "prompt_tokens": 1874
+}

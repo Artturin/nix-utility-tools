@@ -17,6 +17,18 @@ Here are tools which I use to review nixpkgs packages, mainly to diff package ou
   consequential or environmental noise. Do not fully trust its result; a human
   should always at least skim the output.
 
+## Screenshots
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Artturin/nix-utility-tools/screenshots/run-dark.png">
+  <img alt="nix-utility-gui Run page: the nixpkgs checkout, attributes and resources to compare with, above the run and build logs" src="https://raw.githubusercontent.com/Artturin/nix-utility-tools/screenshots/run-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Artturin/nix-utility-tools/screenshots/results-dark.png">
+  <img alt="nix-utility-gui Results page: the packages with differences on the left, the build log diff of curl with the model's verdict below it on the right" src="https://raw.githubusercontent.com/Artturin/nix-utility-tools/screenshots/results-light.png">
+</picture>
+
 ## Examples
 
 Compare selected packages in the working tree against their merge-base with
@@ -24,6 +36,12 @@ Compare selected packages in the working tree against their merge-base with
 
 ```sh
 diff-nixpkgs-attr qt6Packages.qtbase kdePackages.dolphin
+```
+
+Browse the differences it saved in the GUI:
+
+```sh
+nix-utility-gui ./differences-qt6Packages.qtbase+kdePackages.dolphin-my-branch-1a2b3c4
 ```
 
 Compare the normalized build logs for two build results:

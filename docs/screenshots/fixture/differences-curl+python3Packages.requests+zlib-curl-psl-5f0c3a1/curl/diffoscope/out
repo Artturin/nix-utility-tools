@@ -1,0 +1,22 @@
+--- /nix/store/b8m4yq2x9c7l0r3sgwkd1pjn6zh5fvia-curl-8.11.1-bin
++++ /nix/store/3kq9wz7r1dm5ycxh0b2lfgjn8s4pa6vi-curl-8.11.1-bin
+├── bin/curl
+│ ├── readelf --wide --dynamic {}
+│ │ @@ -1,9 +1,12 @@
+│ │ -Dynamic section at offset 0x3dd30 contains 34 entries:
+│ │ +Dynamic section at offset 0x3dd30 contains 37 entries:
+│ │    Tag        Type                         Name/Value
+│ │   0x0000000000000001 (NEEDED)             Shared library: [libcurl.so.4]
+│ │   0x0000000000000001 (NEEDED)             Shared library: [libnghttp2.so.14]
+│ │ + 0x0000000000000001 (NEEDED)             Shared library: [libngtcp2.so.16]
+│ │ + 0x0000000000000001 (NEEDED)             Shared library: [libnghttp3.so.9]
+│ │ + 0x0000000000000001 (NEEDED)             Shared library: [libpsl.so.5]
+│ │   0x0000000000000001 (NEEDED)             Shared library: [libidn2.so.0]
+│ │   0x0000000000000001 (NEEDED)             Shared library: [libssh2.so.1]
+│ │   0x0000000000000001 (NEEDED)             Shared library: [libssl.so.3]
+│ ├── strings --all --bytes=8 {}
+│ │ @@ -412,6 +412,8 @@
+│ │   --http2-prior-knowledge
+│ │ + --http3
+│ │ + --http3-only
+│ │   --ignore-content-length

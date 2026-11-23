@@ -1,0 +1,21 @@
+diff --git a/python3.13-requests-2.32.3 b/python3.13-requests-2.32.3
+index 9d24e01..c5a8f3b 100644
+--- a/python3.13-requests-2.32.3
++++ b/python3.13-requests-2.32.3
+@@ -88,9 +88,9 @@ Executing pytestCheckPhase
+ tests/test_help.py ...                                                   [  0%]
+ tests/test_hooks.py ...                                                  [  1%]
+ tests/test_lowlevel.py ...................                               [  4%]
+-tests/test_requests.py ..................s.............................. [ 13%]
++tests/test_requests.py ................................................. [ 13%]
+ tests/test_structures.py ....................                            [ 16%]
+ tests/test_testserver.py ......s....                                     [ 18%]
+ tests/test_utils.py .................................................... [ 27%]
+@@ -112,6 +112,6 @@ Executing pytestCheckPhase
+ =============================== warnings summary ===============================
+-tests/test_requests.py::TestRequests::test_unicode_header_name
+-  DeprecationWarning: HTTPResponse.getheader() is deprecated
+-=========== 584 passed, 2 skipped, 1 warning ===========
++tests/test_requests.py::TestRequests::test_set_basicauth
++  DeprecationWarning: HTTPResponse.getheader() is deprecated
++=========== 585 passed, 1 skipped, 1 warning ===========

@@ -212,8 +212,41 @@
         }
         // packagesFor pkgs;
 
-        apps.default = utils.lib.mkApp {
-          drv = self.packages.${system}.default;
+        apps = {
+          default = utils.lib.mkApp {
+            drv = self.packages.${system}.default;
+          };
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          # `nix run .#screenshots` retakes the README screenshots of the GUI
+          screenshots = {
+            type = "app";
+            meta.description = "Take the README screenshots of nix-utility-gui";
+            program = lib.getExe (
+              pkgs.writeShellApplication {
+                name = "screenshots";
+                runtimeInputs = [
+                  self.packages.${system}.nix-utility-gui
+                  # the GUI checks that nix is on PATH
+                  pkgs.nix
+                  pkgs.xvfb
+                  pkgs.xdotool
+                  pkgs.imagemagick
+                  pkgs.dbus
+                  pkgs.coreutils
+                  pkgs.findutils
+                ];
+                runtimeEnv = {
+                  FIXTURE = ./docs/screenshots/fixture;
+                  SETTINGS = ./docs/screenshots/settings.toml;
+                  # the icon theme comes from the desktop otherwise
+                  ICONS = "${pkgs.adwaita-icon-theme}/share:${pkgs.hicolor-icon-theme}/share";
+                  FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.adwaita-fonts ]; };
+                };
+                text = builtins.readFile ./scripts/screenshots.sh;
+              }
+            );
+          };
         };
 
         devShells.default =

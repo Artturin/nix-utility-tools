@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "verdict": "inconsequential",
+  "explanation": "",
+  "model": "qwen3:30b-a3b",
+  "endpoint": "ollama",
+  "timestamp": "2026-11-20T14:33:41Z",
+  "trigger": "auto",
+  "prompt_tokens": 912
+}

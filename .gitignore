@@ -3,3 +3,5 @@ result-*
 /target
 .direnv
 .envrc
+# taken by `nix run .#screenshots`; published on the screenshots branch
+/docs/screenshots/*.png
